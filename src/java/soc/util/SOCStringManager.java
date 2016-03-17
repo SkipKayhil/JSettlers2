@@ -409,5 +409,4 @@ public class SOCStringManager extends StringManager
 
         return sm;
     }
-
 }

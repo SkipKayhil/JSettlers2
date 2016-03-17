@@ -419,7 +419,7 @@ public class SOCPlayerInterface extends Frame
     /**
      * The dialog for getting what resources the player wants to discard or gain.
      */
-    protected SOCDiscardOrGainResDialog discardOrGainDialog;
+    protected SOCNotificationDialog notificationDialog;
 
     /**
      * the dialog for choosing a player from which to steal
@@ -1843,10 +1843,10 @@ public class SOCPlayerInterface extends Frame
      * @param nd  the number of resources to discard or gain
      * @param isDiscard  True for discard (after 7), false for gain (after gold hex)
      */
-    public void showDiscardOrGainDialog(final int nd, final boolean isDiscard)
+    public void showDiscardOrGainDialog(final int nd, final SOCNotificationDialog.reason r)
     {
-        discardOrGainDialog = new SOCDiscardOrGainResDialog(this, nd, isDiscard);
-        EventQueue.invokeLater(discardOrGainDialog);  // calls setVisible(true)
+        notificationDialog = new SOCNotificationDialog(this, nd, r);
+        EventQueue.invokeLater(notificationDialog);  // calls setVisible(true)
     }
 
     /**
@@ -2007,7 +2007,7 @@ public class SOCPlayerInterface extends Frame
         switch (gs)
         {
         case SOCGame.WAITING_FOR_DISCOVERY:
-            showDiscardOrGainDialog(2, false);
+            showDiscardOrGainDialog(2, SOCNotificationDialog.reason.GAIN);
             break;
 
         case SOCGame.WAITING_FOR_MONOPOLY:
@@ -3537,12 +3537,12 @@ public class SOCPlayerInterface extends Frame
 
         public void requestedDiscard(int countToDiscard)
         {
-            pi.showDiscardOrGainDialog(countToDiscard, true);
+            pi.showDiscardOrGainDialog(countToDiscard, SOCNotificationDialog.reason.DISCARD);
         }
 
         public void requestedResourceSelect(int countToDiscard)
         {
-            pi.showDiscardOrGainDialog(countToDiscard, false);
+            pi.showDiscardOrGainDialog(countToDiscard, SOCNotificationDialog.reason.GAIN);
         }
 
         public void requestedChoosePlayer(final List<SOCPlayer> choices, final boolean isNoneAllowed)

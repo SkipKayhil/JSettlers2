@@ -583,7 +583,7 @@ public class SOCConnectPanel extends JPanel
 
         // Copy fields, show MAIN_PANEL, and connect in client
         setCursor(Cursor.getPredefinedCursor(Cursor.WAIT_CURSOR));
-        gd.getClient().connect(cserv, cport, conn_user.getText(), conn_pass.getText());
+        gd.getClient().connect(cserv, cport, conn_user.getText(), String.valueOf(conn_pass.getPassword()));
     }
 
     /** Hide fields used to connect to server. Called by client after a network error. */

@@ -204,6 +204,14 @@ public class SOCConnectOrPracticePanel extends Panel
         connserv.addActionListener(this);
 
         /**
+         * Interface setup: sub-panels (not initially visible)
+         */
+        panel_conn = initInterface_conn();  // panel_conn setup
+        panel_conn.setVisible(false);
+        gbl.setConstraints(panel_conn, gbc);
+        bp.add (panel_conn);
+
+        /**
          * Interface setup: Practice
          */
         prac = new Button(strings.get("pcli.main.practice"));  // "Practice" - same as SOCPlayerClient button
@@ -219,14 +227,6 @@ public class SOCConnectOrPracticePanel extends Panel
         if (! canLaunchServer)
             runserv.setEnabled(false);
         bp.add(runserv);
-
-        /**
-         * Interface setup: sub-panels (not initially visible)
-         */
-        panel_conn = initInterface_conn();  // panel_conn setup
-        panel_conn.setVisible(false);
-        gbl.setConstraints(panel_conn, gbc);
-        bp.add (panel_conn);
 
         if (canLaunchServer)
         {
@@ -259,7 +259,7 @@ public class SOCConnectOrPracticePanel extends Panel
         pconn.setLayout(gbl);
         gbc.fill = GridBagConstraints.BOTH;
 
-        // heading row
+        /*// heading row
         L = new Label(strings.get("pcli.cpp.connecttoserv"));  // "Connect to Server"
         L.setAlignment(Label.CENTER);
         L.setBackground(HEADER_LABEL_BG);
@@ -270,7 +270,7 @@ public class SOCConnectOrPracticePanel extends Panel
         L = new Label(" ");  // Spacing for rest of form's rows
         gbc.gridwidth = GridBagConstraints.REMAINDER;
         gbl.setConstraints(L, gbc);
-        pconn.add(L);
+        pconn.add(L);*/
 
         // blank row
         L = new Label();
@@ -282,7 +282,7 @@ public class SOCConnectOrPracticePanel extends Panel
         gbc.gridwidth = 1;
         gbl.setConstraints(L, gbc);
         pconn.add(L);
-        conn_servhost = new TextField(20);
+        conn_servhost = new TextField("nand.net", 20);
         gbc.gridwidth = GridBagConstraints.REMAINDER;
         gbl.setConstraints(conn_servhost, gbc);
         conn_servhost.addKeyListener(this);   // for ESC/ENTER
@@ -295,7 +295,7 @@ public class SOCConnectOrPracticePanel extends Panel
         conn_servport = new TextField(20);
         {
             String svp = Integer.toString(clientNetwork.getPort());
-            conn_servport.setText(svp);
+            conn_servport.setText("14203");
             conn_servport.setSelectionStart(0);
             conn_servport.setSelectionEnd(svp.length());
         }
@@ -344,6 +344,12 @@ public class SOCConnectOrPracticePanel extends Panel
         gbc.gridwidth = GridBagConstraints.REMAINDER;
         gbl.setConstraints(conn_cancel, gbc);
         pconn.add(conn_cancel);
+
+        // blank row
+        L = new Label();
+        gbc.gridwidth = GridBagConstraints.REMAINDER;
+        gbl.setConstraints(L, gbc);
+        pconn.add(L);
 
         return pconn;
     }
@@ -494,9 +500,8 @@ public class SOCConnectOrPracticePanel extends Panel
             if ((panel_run != null) && panel_run.isVisible())
             {
                 panel_run.setVisible(false);
-                runserv.setVisible(true);
+                //runserv.setVisible(true);
             }
-            connserv.setVisible(false);
             conn_servhost.requestFocus();
             validate();
             return;
@@ -523,9 +528,8 @@ public class SOCConnectOrPracticePanel extends Panel
             if ((panel_conn != null) && panel_conn.isVisible())
             {
                 panel_conn.setVisible(false);
-                connserv.setVisible(true);
             }
-            runserv.setVisible(false);
+            //runserv.setVisible(false);
             run_servport.requestFocus();
             {
                 // Convenience: type-to-replace port value
@@ -593,7 +597,6 @@ public class SOCConnectOrPracticePanel extends Panel
     public void clickConnCancel()
     {
         panel_conn.setVisible(false);
-        connserv.setVisible(true);
         validate();
     }
 
@@ -610,7 +613,7 @@ public class SOCConnectOrPracticePanel extends Panel
     private void clickRunCancel()
     {
         panel_run.setVisible(false);
-        runserv.setVisible(true);
+        //runserv.setVisible(true);
         validate();
     }
 

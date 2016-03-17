@@ -101,6 +101,8 @@ import soc.util.SOCServerFeatures;
 import soc.util.SOCStringManager;
 import soc.util.Version;
 
+import javax.swing.*;
+
 /**
  * Standalone client for connecting to the SOCServer. (For applet see {@link SOCApplet}.)
  * Prompts for name and password, displays list of games and channels available.
@@ -675,12 +677,14 @@ public class SOCPlayerClient
          */
         protected final boolean hasConnectOrPractice;
 
+
+        //TODO: remaking this panel in swing
         /**
          * If applicable, is set up in {@link #initVisualElements()}.
          * Key for {@link #cardLayout} is {@link #CONNECT_OR_PRACTICE_PANEL}.
          * @see #hasConnectOrPractice
          */
-        protected SOCConnectOrPracticePanel connectOrPracticePane;
+        protected SOCConnectPanel connectOrPracticePane;
 
         /**
          * The currently showing new-game options frame, or null
@@ -986,7 +990,7 @@ public class SOCPlayerClient
 
             if (hasConnectOrPractice)
             {
-                connectOrPracticePane = new SOCConnectOrPracticePanel(this);
+                connectOrPracticePane = new SOCConnectPanel(this);
                 add (connectOrPracticePane, CONNECT_OR_PRACTICE_PANEL);  // shown first
             }
             add(messagePane, MESSAGE_PANEL); // shown first unless cpPane
@@ -6207,6 +6211,13 @@ public class SOCPlayerClient
     {
         GameAwtDisplay gameDisplay = null;
         SOCPlayerClient client = null;
+
+        try{
+            UIManager.setLookAndFeel(
+                    UIManager.getSystemLookAndFeelClassName()
+                    //"javax.swing.plaf.nimbus.NimbusLookAndFeel"
+            );
+        } catch(Exception ex){}
 
         String host = null;  // from args, if not empty
         int port = -1;

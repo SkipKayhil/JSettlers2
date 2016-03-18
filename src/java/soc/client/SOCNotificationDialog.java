@@ -48,7 +48,7 @@ import java.awt.event.MouseListener;
  * @author  Robert S. Thomas and SkipKayhil
  */
 @SuppressWarnings("serial")
-class SOCNotificationDialog extends JDialog implements ActionListener, MouseListener, Runnable
+class SOCNotificationDialog extends Dialog implements ActionListener, MouseListener, Runnable
 {
 
     /** i18n text strings; will use same locale as SOCPlayerClient's string manager.
@@ -75,7 +75,7 @@ class SOCNotificationDialog extends JDialog implements ActionListener, MouseList
 
     JLabel msg;
     JLabel youHave;
-    JLabel pickThese;
+    JLabel dopThese;
     SOCPlayerInterface playerInterface;
 
     /** Must discard this many resources from {@link #keep}, or must gain this many resources. */
@@ -113,13 +113,13 @@ class SOCNotificationDialog extends JDialog implements ActionListener, MouseList
      *
      * @param pi   Client's player interface
      * @param rnum Player must discard or gain this many resources
-     * @param reason  Reason for notification
+     * @param r  Reason for notification
      */
-    public SOCNotificationDialog(SOCPlayerInterface pi, final int rnum, final reason reason)
+    public SOCNotificationDialog(SOCPlayerInterface pi, final int rnum, final reason r)
     {
         super(pi, true);
 
-        notifReason = reason;
+        notifReason = r;
         playerInterface = pi;
         numPickNeeded = rnum;
         numChosen = 0;
@@ -130,19 +130,19 @@ class SOCNotificationDialog extends JDialog implements ActionListener, MouseList
         msg = new JLabel();
 
 
-        if(reason == SOCNotificationDialog.reason.DISCARD || reason == SOCNotificationDialog.reason.GAIN){
-            pickThese = new JLabel();
-            pickThese.setHorizontalAlignment(SwingConstants.LEFT);
+        if(notifReason == SOCNotificationDialog.reason.DISCARD || notifReason == SOCNotificationDialog.reason.GAIN){
+            dopThese = new JLabel();
+            dopThese.setHorizontalAlignment(SwingConstants.LEFT);
 
             clearBut = new JButton(strings.get("base.clear"));
 
-            dopBut = new JButton(strings.get(reason == SOCNotificationDialog.reason.DISCARD ? "dialog.discard.discard" : "dialog.discard.pick"));
+            dopBut = new JButton(strings.get(notifReason == SOCNotificationDialog.reason.DISCARD ? "dialog.discard.discard" : "dialog.discard.pick"));
             // "Discard" or "Pick"
 
-            youHave = new JLabel(strings.get("dialog.discard.you.have"), SwingConstants.LEFT);  // "You have:"
+            youHave = new JLabel(strings.get("dialog.discard.you.have"), SwingConstants.CENTER);  // "You have:"
         }
 
-        switch(reason){
+        switch(notifReason){
             case TURN:
                 this.setTitle(strings.get("dialog.notification.title.turn",pi.getClient().getNickname()));
                 msg.setText(strings.get("dialog.notification.message.turn"));
@@ -156,14 +156,14 @@ class SOCNotificationDialog extends JDialog implements ActionListener, MouseList
                 this.setTitle(strings.get("dialog.notification.title.discard",pi.getClient().getNickname()));
                 msg.setText(strings.get("dialog.notification.message.discard", numPickNeeded));
                 // "Please discard {0} resources."
-                pickThese.setText(strings.get("dialog.notification.these.discard"));
+                dopThese.setText(strings.get("dialog.notification.these.discard"));
                 // "Discard these:"
                 break;
             case GAIN:
                 this.setTitle(strings.get("dialog.notification.title.gain",pi.getClient().getNickname()));
                 msg.setText(strings.get("dialog.notification.message.gain", numPickNeeded));
                 // "Please pick {0} resources."
-                pickThese.setText(strings.get("dialog.notification.these.gain"));
+                dopThese.setText(strings.get("dialog.notification.these.gain"));
                 // "Gain these:"
                 break;
         }
@@ -173,9 +173,9 @@ class SOCNotificationDialog extends JDialog implements ActionListener, MouseList
 
         add(msg);
 
-        if(reason == SOCNotificationDialog.reason.DISCARD || reason == SOCNotificationDialog.reason.GAIN){
+        if(notifReason == SOCNotificationDialog.reason.DISCARD || notifReason == SOCNotificationDialog.reason.GAIN){
             add(youHave);
-            add(pickThese);
+            add(dopThese);
 
             add(clearBut);
             clearBut.addActionListener(this);
@@ -306,7 +306,7 @@ class SOCNotificationDialog extends JDialog implements ActionListener, MouseList
             clearBut.setBounds(btnsX, y, 80, 25);
             dopBut.setBounds(btnsX + 85, y, 80, 25);
             youHave.setBounds(getInsets().left, getInsets().top + 20 + space, 70, 20);
-            pickThese.setBounds(getInsets().left, getInsets().top + 20 + space + 20 + space + sqwidth + space, 100, 20);
+            dopThese.setBounds(getInsets().left, getInsets().top + 20 + space + 20 + space + sqwidth + space, 100, 20);
         }
         catch (NullPointerException e) {}
 

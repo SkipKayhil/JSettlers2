@@ -60,9 +60,7 @@ import java.util.MissingResourceException;
 import java.util.Timer;  // For auto-roll
 import java.util.TimerTask;
 
-import javax.swing.JLabel;
-import javax.swing.SwingConstants;
-import javax.swing.UIManager;
+import javax.swing.*;
 
 
 /**
@@ -2178,6 +2176,11 @@ public class SOCHandPanel extends Panel
             setRollPrompt(ROLL_OR_PLAY_CARD, false);
         else
             autoRollSetupTimer();
+        JOptionPane.showMessageDialog(
+                playerInterface,
+                "It's your turn!",
+                "Turn Notification",
+                JOptionPane.PLAIN_MESSAGE);
     }
 
     /**

@@ -1,3 +1,4 @@
+<<<<<<< HEAD:src/java/resources/version.info
 # Project info template
 # Copied to resources with a filter to set the proper values
 # To change version and versionnum, edit build.xml
@@ -11,3 +12,18 @@ project.buildnum=JM20160314
 project.jre.min.major=1
 project.jre.min.minor=5
 project.jre.min.edit=0
+=======
+# Project info template
+# Copied to resources with a filter to set the proper values
+# To change version and versionnum, edit build.xml
+# Buildnum is set directly here, because it changes more often
+# See also soc.util.Version
+project.version=@VERSION@
+project.versionnum=@VERSIONNUM@
+project.versionnumMaxNoWarn=@VERSIONNUMMAXNOWARN@
+project.copyright=@COPYRIGHT@
+project.buildnum=JM20160326
+project.jre.min.major=1
+project.jre.min.minor=5
+project.jre.min.edit=0
+>>>>>>> 93edcec17d27468bc9aee704defc76df52a24dee:src/java/resources/version.info.in

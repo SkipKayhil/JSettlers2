@@ -159,6 +159,10 @@ public class SOCInventory
         return false;
     }
 
+    public int getAmount(){
+        return news.size() + playables.size() + kept.size();
+    }
+
     /**
      * Get the amount of a dev card type or special item in the set.
      * @param ctype  Type of development card or item as described
@@ -471,6 +475,25 @@ public class SOCInventory
         }
 
         news.clear();
+    }
+
+    public SOCInventoryItem[] getFullInventory(){
+        SOCInventoryItem [] inventory = new SOCInventoryItem[getAmount()];
+        int place = 0;
+        for(SOCInventoryItem item: news){
+            inventory[place] = item;
+            place++;
+        }
+        for(SOCInventoryItem item: playables){
+            inventory[place] = item;
+            place++;
+        }
+        for(SOCInventoryItem item: kept){
+            inventory[place] = item;
+            place++;
+        }
+
+        return inventory;
     }
 
 }

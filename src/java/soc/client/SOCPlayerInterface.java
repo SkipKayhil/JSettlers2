@@ -419,7 +419,7 @@ public class SOCPlayerInterface extends Frame
     /**
      * The dialog for getting what resources the player wants to discard or gain.
      */
-    protected SOCNotificationDialog notificationDialog;
+    protected SOCDiscardOrGainResDialog socDiscardOrGainResDialog;
 
     /**
      * the dialog for choosing a player from which to steal
@@ -1843,10 +1843,10 @@ public class SOCPlayerInterface extends Frame
      * @param nd  the number of resources to discard or gain
      * @param isDiscard  True for discard (after 7), false for gain (after gold hex)
      */
-    public void showDiscardOrGainDialog(final int nd, final SOCNotificationDialog.reason r)
+    public void showDiscardOrGainDialog(final int nd, final boolean isDiscard)
     {
-        notificationDialog = new SOCNotificationDialog(this, nd, r);
-        EventQueue.invokeLater(notificationDialog);  // calls setVisible(true)
+        socDiscardOrGainResDialog = new SOCDiscardOrGainResDialog(this, nd, isDiscard);
+        EventQueue.invokeLater(socDiscardOrGainResDialog);  // calls setVisible(true)
     }
 
     /**
@@ -2007,7 +2007,7 @@ public class SOCPlayerInterface extends Frame
         switch (gs)
         {
         case SOCGame.WAITING_FOR_DISCOVERY:
-            showDiscardOrGainDialog(2, SOCNotificationDialog.reason.GAIN);
+            showDiscardOrGainDialog(2, false);
             break;
 
         case SOCGame.WAITING_FOR_MONOPOLY:
@@ -3537,12 +3537,12 @@ public class SOCPlayerInterface extends Frame
 
         public void requestedDiscard(int countToDiscard)
         {
-            pi.showDiscardOrGainDialog(countToDiscard, SOCNotificationDialog.reason.DISCARD);
+            pi.showDiscardOrGainDialog(countToDiscard, true);
         }
 
         public void requestedResourceSelect(int countToDiscard)
         {
-            pi.showDiscardOrGainDialog(countToDiscard, SOCNotificationDialog.reason.GAIN);
+            pi.showDiscardOrGainDialog(countToDiscard, false);
         }
 
         public void requestedChoosePlayer(final List<SOCPlayer> choices, final boolean isNoneAllowed)

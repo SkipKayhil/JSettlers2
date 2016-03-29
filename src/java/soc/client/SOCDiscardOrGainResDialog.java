@@ -25,6 +25,7 @@ import soc.game.SOCPlayer;
 import soc.game.SOCResourceConstants;
 import soc.game.SOCResourceSet;
 
+import javax.swing.*;
 import java.awt.Button;
 import java.awt.Color;
 import java.awt.Dialog;
@@ -68,10 +69,10 @@ class SOCDiscardOrGainResDialog extends Dialog implements ActionListener, MouseL
      * Clear button.  Reset the {@link #pick} resource colorsquare counts to 0.
      * @since 1.1.14
      */
-    private Button clearBut;
+    private JButton clearBut;
 
     /** Discard or Pick button */
-    private Button okBut;
+    private JButton okBut;
 
     /** The 'keep' square resource types/counts only change if {@link #isDiscard}. */
     ColorSquare[] keep;
@@ -79,9 +80,9 @@ class SOCDiscardOrGainResDialog extends Dialog implements ActionListener, MouseL
     /** Resource types/counts to discard or gain */
     private ColorSquare[] pick;
 
-    Label msg;
-    Label youHave;
-    Label pickThese;
+    JLabel msg;
+    JLabel youHave;
+    JLabel pickThese;
     SOCPlayerInterface playerInterface;
 
     /** Must discard this many resources from {@link #keep}, or must gain this many resources. */
@@ -114,7 +115,7 @@ class SOCDiscardOrGainResDialog extends Dialog implements ActionListener, MouseL
     public SOCDiscardOrGainResDialog(SOCPlayerInterface pi, final int rnum, final boolean isDiscard)
     {
         super(pi, strings.get
-                (isDiscard ? "dialog.discard.title" : "dialog.discard.title.gain", pi.getClient().getNickname()), true);
+                (isDiscard ? "dialog.notification.title.discard" : "dialog.notification.title.gain", pi.getClient().getNickname()), true);
                 // "Discard [{0}]" or "Gain Resources [{0}]"
 
         this.isDiscard = isDiscard;
@@ -125,21 +126,21 @@ class SOCDiscardOrGainResDialog extends Dialog implements ActionListener, MouseL
         setForeground(Color.black);
         setFont(new Font("SansSerif", Font.PLAIN, 12));
 
-        clearBut = new Button(strings.get("base.clear"));
-        okBut = new Button(strings.get(isDiscard ? "dialog.discard.discard" : "dialog.discard.pick"));
+        clearBut = new JButton(strings.get("base.clear"));
+        okBut = new JButton(strings.get(isDiscard ? "dialog.discard.discard" : "dialog.discard.pick"));
             // "Discard" or "Pick"
 
         didSetLocation = false;
         setLayout(null);
 
-        msg = new Label
-            (strings.get((isDiscard) ? "dialog.discard.please.discard.n" : "dialog.discard.please.pick.n", numPickNeeded),
-             Label.CENTER);
+        msg = new JLabel
+            (strings.get((isDiscard) ? "dialog.notification.message.discard" : "dialog.notification.message.gain", numPickNeeded),
+             SwingConstants.CENTER);
             // "Please discard {0} resources." or "Please pick {0} resources."
         add(msg);
-        youHave = new Label(strings.get("dialog.discard.you.have"), Label.LEFT);  // "You have:"
+        youHave = new JLabel(strings.get("dialog.discard.you.have"), SwingConstants.LEFT);  // "You have:"
         add(youHave);
-        pickThese = new Label(strings.get(isDiscard ? "dialog.discard.these" : "dialog.discard.gain.these"), Label.LEFT);
+        pickThese = new JLabel(strings.get(isDiscard ? "dialog.notification.these.discard" : "dialog.notification.these.gain"), SwingConstants.LEFT);
             // "Discard these:" or "Gain these:"
         add(pickThese);
 

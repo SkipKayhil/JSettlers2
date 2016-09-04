@@ -22,6 +22,7 @@
  **/
 package soc.server;
 
+import java.text.DateFormat;
 import java.text.MessageFormat;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -165,19 +166,21 @@ public class SOCGameHandler extends GameHandler
 
     /**
      * Used by {@link #SOC_DEBUG_COMMANDS_HELP}, etc.
+     * @see #DEBUG_COMMANDS_HELP_PLAYER
      */
     private static final String DEBUG_COMMANDS_HELP_RSRCS
         = "rsrcs: #cl #or #sh #wh #wo player";
 
     /**
      * Used by {@link #SOC_DEBUG_COMMANDS_HELP}, etc.
+     * @see #DEBUG_COMMANDS_HELP_PLAYER
      */
     private static final String DEBUG_COMMANDS_HELP_DEV
         = "dev: #typ player";
 
     /**
      * Debug help: player name or number. Used by {@link #SOC_DEBUG_COMMANDS_HELP}, etc.
-     * @since 2.0.00
+     * @since 1.1.20
      */
     private static final String DEBUG_COMMANDS_HELP_PLAYER
         = "'Player' is a player name or #number (upper-left is #0, increasing clockwise)";
@@ -203,7 +206,7 @@ public class SOCGameHandler extends GameHandler
         DEBUG_CMD_FREEPLACEMENT + " 1 or 0  Start or end 'Free Placement' mode",
         "--- Debug Resources ---",
         DEBUG_COMMANDS_HELP_RSRCS,
-        "Example  rsrcs: 0 3 0 2 0 Myname",
+        "Example  rsrcs: 0 3 0 2 0 Myname  or  rsrcs: 0 3 0 2 0 #3",
         DEBUG_COMMANDS_HELP_DEV,
         "Example  dev: 2 Myname   or  dev: 2 #3",
         DEBUG_COMMANDS_HELP_PLAYER,
@@ -1428,7 +1431,9 @@ public class SOCGameHandler extends GameHandler
         // before v2.0.00, current player number (SETTURN) was sent here,
         // between membersCommand and GAMESTATE.
         c.put(SOCGameState.toCmd(gameName, gameData.getGameState()));
-        D.ebugPrintln("*** " + c.getData() + " joined the game " + gameName + " from " + c.host());
+        if (D.ebugOn)
+            D.ebugPrintln("*** " + c.getData() + " joined the game " + gameName + " at "
+                + DateFormat.getTimeInstance(DateFormat.SHORT).format(new Date()));
 
         //messageToGame(gameName, new SOCGameTextMsg(gameName, SERVERNAME, n+" joined the game"));
         /**
@@ -1674,7 +1679,9 @@ public class SOCGameHandler extends GameHandler
         srv.messageToGameWithMon(gm, leaveMessage);
         srv.recordGameEvent(gm, leaveMessage.toCmd());
 
-        D.ebugPrintln("*** " + plName + " left the game " + gm);
+        if (D.ebugOn)
+            D.ebugPrintln("*** " + plName + " left the game " + gm + " at "
+                + DateFormat.getTimeInstance(DateFormat.SHORT).format(new Date()));
         srv.messageToGameKeyed(ga, false, "member.left.game", plName);  // "{0} left the game"
 
         /**
@@ -2180,8 +2187,9 @@ public class SOCGameHandler extends GameHandler
      *  If game is OVER, send messages reporting winner, final score,
      *  and each player's victory-point cards.
      *  Also give stats on game length, and on each player's connect time.
-     *  If player has finished more than 1 game since connecting, send win-loss count.
+     *  If player has finished more than 1 game since connecting, send their win-loss count.
      *<P>
+     *  Increments server stats' numberOfGamesFinished.
      *  If db is active, calls {@link SOCServer#storeGameScores(SOCGame)} to save game stats.
      *<P>
      *  If {@link SOCGame#isBotsOnly}, calls {@link SOCServer#destroyGameAndBroadcast(String, String)} to make room
@@ -2343,6 +2351,7 @@ public class SOCGameHandler extends GameHandler
 
         }  // send game timing stats, win-loss stats
 
+        srv.gameOverIncrGamesFinishedCount();
         srv.storeGameScores(ga);
 
         if (ga.isBotsOnly)
@@ -5589,8 +5598,8 @@ public class SOCGameHandler extends GameHandler
         if (parseError)
         {
             srv.messageToPlayer(c, game.getName(), "### Usage: " + DEBUG_COMMANDS_HELP_DEV);
-            srv.messageToPlayer(c, game.getName(), DEBUG_COMMANDS_HELP_DEV_TYPES);
             srv.messageToPlayer(c, game.getName(), DEBUG_COMMANDS_HELP_PLAYER);
+            srv.messageToPlayer(c, game.getName(), DEBUG_COMMANDS_HELP_DEV_TYPES);
 
             return;  // <--- early return ---
         }
@@ -5623,7 +5632,7 @@ public class SOCGameHandler extends GameHandler
      * @param name  Player name, or player position number in format "{@code #3}"
      *     numbered 0 to {@link SOCGame#maxPlayers ga.maxPlayers}-1 inclusive
      * @return  {@link SOCPlayer} with this name or number, or {@code null} if an error was sent to the user
-     * @since 2.0.00
+     * @since 1.1.20
      */
     private SOCPlayer debug_getPlayer(final StringConnection c, final SOCGame ga, final String name)
     {

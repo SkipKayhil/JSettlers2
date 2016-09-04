@@ -1,7 +1,7 @@
 /**
  * Java Settlers - An online multiplayer version of the game Settlers of Catan
  * This file copyright (C) 2003-2004  Robert S. Thomas
- * Portions of this file copyright (C) 2009-2015 Jeremy D Monin <jeremy@nand.net>
+ * Portions of this file copyright (C) 2009-2016 Jeremy D Monin <jeremy@nand.net>
  * Portions of this file Copyright (C) 2012 Paul Bilnoski <paul@bilnoski.net>
  *
  * This program is free software; you can redistribute it and/or
@@ -27,6 +27,7 @@ import java.util.Enumeration;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
+import java.util.List;
 import java.util.Stack;
 import java.util.Vector;
 
@@ -845,13 +846,18 @@ public class SOCRobotDM
   protected void scoreSettlementsForDumb(final int settlementETA, SOCBuildingSpeedEstimate ourBSE)
   {
     D.ebugPrintln("-- scoreSettlementsForDumb --");
-    Queue<Pair<SOCPossibleRoad,?>> queue = new Queue<Pair<SOCPossibleRoad,?>>();
+
+    Queue<Pair<SOCPossibleRoad, List<SOCPossibleRoad>>> queue
+        = new Queue<Pair<SOCPossibleRoad, List<SOCPossibleRoad>>>();
     Iterator<SOCPossibleSettlement> posSetsIter = ourPlayerTracker.getPossibleSettlements().values().iterator();
     while (posSetsIter.hasNext())
     {
       SOCPossibleSettlement posSet = posSetsIter.next();
-      D.ebugPrintln("Estimate speedup of stlmt at "+game.getBoard().nodeCoordToString(posSet.getCoordinates()));
-      D.ebugPrintln("***    speedup total = "+posSet.getSpeedupTotal());
+      if (D.ebugOn)
+      {
+          D.ebugPrintln("Estimate speedup of stlmt at " + game.getBoard().nodeCoordToString(posSet.getCoordinates()));
+          D.ebugPrintln("***    speedup total = " + posSet.getSpeedupTotal());
+      }
 
       ///
       /// find the shortest path to this settlement
@@ -859,22 +865,31 @@ public class SOCRobotDM
       Vector<SOCPossibleRoad> necRoadVec = posSet.getNecessaryRoads();
       if (! necRoadVec.isEmpty())
       {
-          queue.clear();
+          queue.clear();  // will use for BFS if needed:
+              // Pair members are <SOCPossibleRoad, null or list of SOCPossibleRoad needed to build that road>.
+              // Lists have most-distant necessary road at beginning (item 0), and most-immediate at end of list (n-1).
+
           Iterator<SOCPossibleRoad> necRoadsIter = necRoadVec.iterator();
-          while (necRoadsIter.hasNext()) {
+          while (necRoadsIter.hasNext())
+          {
               SOCPossibleRoad necRoad = necRoadsIter.next();
-              D.ebugPrintln("-- queuing necessary road at "+game.getBoard().edgeCoordToString(necRoad.getCoordinates()));
-              queue.put(new Pair<SOCPossibleRoad,Object>(necRoad, null));
+              if (D.ebugOn)
+                  D.ebugPrintln("-- queuing necessary road at " + game.getBoard().edgeCoordToString(necRoad.getCoordinates()));
+              queue.put(new Pair<SOCPossibleRoad, List<SOCPossibleRoad>>(necRoad, null));
           }
+
           //
           // Do a BFS of the necessary road paths looking for the shortest one.
           //
           boolean pathTooLong = false;
           while (! queue.empty())
           {
-              Pair<SOCPossibleRoad,?> dataPair = queue.get();
+              Pair<SOCPossibleRoad, List<SOCPossibleRoad>> dataPair = queue.get();
               SOCPossibleRoad curRoad = dataPair.getA();
-              D.ebugPrintln("-- current road at "+game.getBoard().edgeCoordToString(curRoad.getCoordinates()));
+              final List<SOCPossibleRoad> possRoadsToCur = dataPair.getB();
+              if (D.ebugOn)
+                  D.ebugPrintln("-- current road at " + game.getBoard().edgeCoordToString(curRoad.getCoordinates()));
+
               Vector<SOCPossibleRoad> necRoads = curRoad.getNecessaryRoads();
               if (necRoads.isEmpty())
               {
@@ -884,21 +899,31 @@ public class SOCRobotDM
                   D.ebugPrintln("Found a path!");
                   Stack<SOCPossibleRoad> path = new Stack<SOCPossibleRoad>();
                   path.push(curRoad);
-                  Pair<SOCPossibleRoad,?> curPair = (Pair)dataPair.getB();
-                  D.ebugPrintln("curPair = "+curPair);
-                  while (curPair != null) {
-                      path.push(curPair.getA());
-                      curPair = (Pair)curPair.getB();
-                  }
+
+                  if (D.ebugOn)
+                      D.ebugPrintln("possRoadsToCur = " + possRoadsToCur);
+                  if (possRoadsToCur != null)
+                      // push to path, iterating from nearest to curRoad until most distant
+                      for (int i = possRoadsToCur.size() - 1; i >= 0; --i)
+                          path.push(possRoadsToCur.get(i));
+
                   posSet.setRoadPath(path);
                   queue.clear();
                   D.ebugPrintln("Done setting path.");
               } else {
+                  final List<SOCPossibleRoad> possRoadsAndCur =
+                      (possRoadsToCur != null)
+                      ? new ArrayList<SOCPossibleRoad>(possRoadsToCur)
+                      : new ArrayList<SOCPossibleRoad>();
+                  possRoadsAndCur.add(curRoad);
+
                   necRoadsIter = necRoads.iterator();
-                  while (necRoadsIter.hasNext()) {
+                  while (necRoadsIter.hasNext())
+                  {
                       SOCPossibleRoad necRoad2 = necRoadsIter.next();
-                      D.ebugPrintln("-- queuing necessary road at "+game.getBoard().edgeCoordToString(necRoad2.getCoordinates()));
-                      queue.put(new Pair<SOCPossibleRoad,Pair<SOCPossibleRoad,?>>(necRoad2, dataPair));
+                      if (D.ebugOn)
+                          D.ebugPrintln("-- queuing necessary road at " + game.getBoard().edgeCoordToString(necRoad2.getCoordinates()));
+                      queue.put(new Pair<SOCPossibleRoad, List<SOCPossibleRoad>>(necRoad2, possRoadsAndCur));
                   }
 
                   if (queue.size() > 100)
@@ -924,7 +949,8 @@ public class SOCRobotDM
               SOCResourceSet targetResources = new SOCResourceSet();
               targetResources.add(SOCGame.SETTLEMENT_SET);
               Stack<SOCPossibleRoad> path = posSet.getRoadPath();
-              if (path != null) {
+              if (path != null)
+              {
                   final int pathLength = path.size();
                   final SOCPossiblePiece pathFirst = (pathLength > 0) ? path.peek() : null;
                   SOCResourceSet rtype =
@@ -945,7 +971,8 @@ public class SOCRobotDM
           posSet.setRoadPath(null);
           posSet.setETA(settlementETA);
       }
-      D.ebugPrintln("Settlement ETA = "+posSet.getETA());
+
+      D.ebugPrintln("Settlement ETA = " + posSet.getETA());
     }
   }
 
@@ -1118,9 +1145,9 @@ public class SOCRobotDM
   }
 
   /**
-   * Does a depth first search from the end point of the longest
-   * path in a graph of nodes and returns how many roads would
-   * need to be built to take longest road.
+   * Does a depth first search of legal possible road edges from the end point of the longest
+   * path connecting a graph of nodes, and returns which roads or how many roads
+   * would need to be built to take longest road.
    *<P>
    * Do not call if {@link SOCGameOption#K_SC_0RVP} is set, because
    * this method needs {@link SOCPlayer#getLRPaths()} which will be empty.
@@ -1130,12 +1157,15 @@ public class SOCRobotDM
    * @param pl            Calculate this player's longest road;
    *             typically SOCRobotDM.ourPlayerData or SOCPlayerTracker.player
    * @param wantsStack    If true, return the Stack; otherwise, return numRoads.
-   * @param startNode     the path endpoint
+   * @param startNode     the path endpoint, such as from
+   *             {@link SOCPlayer#getLRPaths()}.(i){@link SOCLRPathData#getBeginning() .getBeginning()}
+   *             or {@link SOCLRPathData#getEnd() .getEnd()}
    * @param pathLength    the length of that path
    * @param lrLength      length of longest road in the game
    * @param searchDepth   how many roads out to search
    *
-   * @return if <tt>wantsStack</tt>: a {@link Stack} containing the path of roads with the last one on top, or null if it can't be done.
+   * @return if <tt>wantsStack</tt>: a {@link Stack} containing the path of roads with the last one
+   *         (farthest from <tt>startNode</tt>) on top, or <tt>null</tt> if it can't be done.
    *         If ! <tt>wantsStack</tt>: Integer: the number of roads needed, or 500 if it can't be done
    */
   static Object recalcLongestRoadETAAux
@@ -1147,24 +1177,32 @@ public class SOCRobotDM
     //
     // We're doing a depth first search of all possible road paths.
     // For similar code, see SOCPlayer.calcLongestRoad2
+    // Both methods rely on a stack holding NodeLenVis (pop to curNode in loop);
+    // they differ in actual element type within the stack because they are
+    // gathering slightly different results (length or a stack of edges).
     //
     int longest = 0;
     int numRoads = 500;
-    Pair<NodeLenVis<Integer>, ?> bestPathNode = null;
+    Pair<NodeLenVis<Integer>, List<Integer>> bestPathNode = null;
+
     final SOCBoard board = pl.getGame().getBoard();
-    Stack<Pair<NodeLenVis<Integer>, ?>> pending = new Stack<Pair<NodeLenVis<Integer>, ?>>();  // as-yet unvisited
-    pending.push(new Pair<NodeLenVis<Integer>, Object>
+    Stack<Pair<NodeLenVis<Integer>, List<Integer>>> pending = new Stack<Pair<NodeLenVis<Integer>, List<Integer>>>();
+        // Holds as-yet unvisited nodes:
+        // Pair members are <NodeLenVis, null or node-coordinate list of all parents (from DFS traversal order)>.
+        // Lists have most-distant node at beginning (item 0), and most-immediate at end of list (n-1).
+        // That list is used at the end to build the returned Stack which is the road path needed.
+    pending.push(new Pair<NodeLenVis<Integer>, List<Integer>>
         (new NodeLenVis<Integer>(startNode, pathLength, new Vector<Integer>()), null));
 
     while (! pending.empty())
     {
-      Pair<NodeLenVis<Integer>, ?> dataPair = pending.pop();
-      NodeLenVis<Integer> curNode = dataPair.getA();
+      final Pair<NodeLenVis<Integer>, List<Integer>> dataPair = pending.pop();
+      final NodeLenVis<Integer> curNode = dataPair.getA();
       //D.ebugPrintln("curNode = "+curNode);
 
       final int coord = curNode.node;
       int len = curNode.len;
-      Vector<Integer> visited = curNode.vis;
+      final Vector<Integer> visited = curNode.vis;
       boolean pathEnd = false;
 
       //
@@ -1185,7 +1223,7 @@ public class SOCRobotDM
       if (! pathEnd)
       {
           //
-          // check if we've connected to another road graph
+          // check if we've connected to another road graph of this player
           //
           Iterator<SOCLRPathData> lrPathsIter = pl.getLRPaths().iterator();
           while (lrPathsIter.hasNext())
@@ -1193,8 +1231,7 @@ public class SOCRobotDM
               SOCLRPathData pathData = lrPathsIter.next();
               if ((startNode != pathData.getBeginning())
                       && (startNode != pathData.getEnd())
-                      && ((coord == pathData.getBeginning())
-                              || (coord == pathData.getEnd())))
+                      && ((coord == pathData.getBeginning()) || (coord == pathData.getEnd())))
               {
                   pathEnd = true;
                   len += pathData.getLength();
@@ -1251,9 +1288,17 @@ public class SOCRobotDM
                     Vector<Integer> newVis = new Vector<Integer>(visited);
                     newVis.addElement(edge);
 
+                    List<Integer> nodeParentList = dataPair.getB();
+                    if (nodeParentList == null)
+                        nodeParentList = new ArrayList<Integer>();
+                    else
+                        nodeParentList = new ArrayList<Integer>(nodeParentList);  // clone before we add to it
+                    nodeParentList.add(coord);  // curNode's coord will be parent to new pending element
+
                     j = board.getAdjacentNodeToNode(coord, dir);  // edge's other node
-                    pending.push(new Pair<NodeLenVis<Integer>, Pair<NodeLenVis<Integer>, ?>>
-                        (new NodeLenVis<Integer>(j, len+1, newVis), dataPair));
+                    pending.push(new Pair<NodeLenVis<Integer>, List<Integer>>
+                        (new NodeLenVis<Integer>(j, len + 1, newVis), nodeParentList));
+
                     pathEnd = false;
                 }
             }
@@ -1284,6 +1329,7 @@ public class SOCRobotDM
             rv = numRoads;
         else
             rv = 500;
+
         return new Integer(rv);  // <-- Early return: ! wantsStack ---
     }
 
@@ -1291,32 +1337,27 @@ public class SOCRobotDM
     {
       //D.ebugPrintln("Converting nodes to road coords.");
       //
-      // return the path in a stack with the last road on top
-      //
-      //
-      // first, convert pairs of node coords to road coords (edge coords):
-      //
-      Stack<SOCPossibleRoad> temp = new Stack<SOCPossibleRoad>();
-      SOCPossibleRoad posRoad;
-      int coordA, coordB;
-      Pair<NodeLenVis<Integer>, ?> cur, parent;
-      cur = bestPathNode;
-      parent = (Pair)bestPathNode.getB();
-      while (parent != null)
-      {
-          coordA = ((NodeLenVis<?>)cur.getA()).node;
-          coordB = ((NodeLenVis<?>)parent.getA()).node;
-          posRoad = new SOCPossibleRoad(pl, board.getEdgeBetweenAdjacentNodes(coordA, coordB), null);
-          temp.push(posRoad);
-          cur = parent;
-          parent = (Pair) parent.getB();
-      }
-      //
-      // reverse the order of the roads so that the last one is on top
+      // Return the path in a stack, with the last road (the one from bestPathNode) on top.
+      // Convert pairs of node coords to edge coords for roads.
+      // List is ordered from farthest parent at 0 to bestPathNode's parent at (n-1),
+      // so iterate same way to build the stack.
       //
       Stack<SOCPossibleRoad> path = new Stack<SOCPossibleRoad>();
-      while (! temp.empty())
-          path.push(temp.pop());
+      int coordC, coordP;
+      List<Integer> nodeList = bestPathNode.getB();
+      if ((nodeList == null) || nodeList.isEmpty())
+          return null;  // <--- early return, no node list: should not happen ---
+      nodeList.add(new Integer(bestPathNode.getA().node));  // append bestPathNode
+
+      final int L = nodeList.size();
+      coordP = nodeList.get(0);  // root ancestor
+      for (int i = 1; i < L; ++i)
+      {
+          coordC = nodeList.get(i);
+          path.push(new SOCPossibleRoad(pl, board.getEdgeBetweenAdjacentNodes(coordC, coordP), null));
+
+          coordP = coordC;
+      }
 
       return path;
     }
@@ -1330,7 +1371,7 @@ public class SOCRobotDM
    * and update {@link #buildingPlan}.
    *<P>
    * For example, if {@link #favoriteSettlement} is chosen,
-   * it's chosen from {@link #goodSettlements} or {{@link #threatenedSettlements}.
+   * it's chosen from {@link #goodSettlements} or {@link #threatenedSettlements}.
    *<P>
    * Some scenarios require special moves or certain actions to win the game.  If we're playing in
    * such a scenario, after calculating {@link #favoriteSettlement}, {@link #favoriteCity}, etc, calls
@@ -1368,9 +1409,10 @@ public class SOCRobotDM
     //
     // save the lr paths list to restore later
     //
-    Vector<SOCLRPathData>[] savedLRPaths = new Vector[game.maxPlayers];
+    List<SOCLRPathData>[] savedLRPaths = new List[game.maxPlayers];
     for (int pn = 0; pn < game.maxPlayers; pn++) {
-      savedLRPaths[pn] = new Vector<SOCLRPathData>(game.getPlayer(pn).getLRPaths());
+      savedLRPaths[pn] = new ArrayList<SOCLRPathData>();
+      savedLRPaths[pn].addAll(game.getPlayer(pn).getLRPaths());
     }
 
     int ourCurrentWGETA = ourPlayerTracker.getWinGameETA();
@@ -2224,8 +2266,8 @@ public class SOCRobotDM
     float bestWondScoreOrETA;
     int gi = -1;  // wonder's "game index" in Special Item interface
 
-    final int pLevel = (bestWond != null) ? bestWond.getLevel() : 0;
     // TODO check level vs other players' level; if 2+ ahead of all others, no need to build more.
+    //    final int pLevel = (bestWond != null) ? bestWond.getLevel() : 0;
     // No need to check against max levels: if we've already reached max level, game has ended
 
     if (bestWond != null)

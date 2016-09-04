@@ -51,6 +51,7 @@ import java.io.IOException;
 import java.io.InputStreamReader;
 import java.net.SocketException;
 import java.sql.SQLException;
+import java.text.DateFormat;
 import java.text.MessageFormat;  // used in javadocs
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -303,7 +304,7 @@ public class SOCServer extends Server
      *<P>
      * Each property name is followed in the array by a brief description:
      * [0] is a property, [1] is its description, [2] is the next property, etc.
-     * (This was added in 1.1.13 for {@link #printUsage(boolean)}}.
+     * (This was added in 1.1.13 for {@link #printUsage(boolean)}).
      * @since 1.1.09
      */
     public static final String[] PROPS_LIST =
@@ -522,7 +523,7 @@ public class SOCServer extends Server
      * True if {@link #props} contains a property which is used to run the server in Utility Mode
      * instead of Server Mode.  In Utility Mode the server reads its properties, initializes its
      * database connection if any, and performs one task such as a password reset or table/index creation.
-     * It won't listen at a TCP port or start other threads.
+     * It won't listen on a TCP port or start other threads.
      *<P>
      * For a list of Utility Mode properties, see {@link #hasUtilityModeProperty()}.
      * @see #utilityModeMessage
@@ -704,6 +705,9 @@ public class SOCServer extends Server
 
     /**
      * list of chat channels
+     *<P>
+     * Instead of calling {@link SOCChannelList#deleteChannel(String)},
+     * call {@link #destroyChannel(String)} to also clean up related server data.
      */
     protected SOCChannelList channelList = new SOCChannelList();
 
@@ -738,14 +742,27 @@ public class SOCServer extends Server
     protected long startTime;
 
     /**
-     * the total number of games that have been started
+     * The total number of games that have been started:
+     * {@link GameHandler#startGame(SOCGame)} has been called
+     * and game play has begun. Game state became {@link SOCGame#READY}
+     * or higher from an earlier/lower state.
      */
     protected int numberOfGamesStarted;
 
     /**
-     * the total number of games finished
+     * The total number of games finished: Game state became {@link SOCGame#OVER} or higher
+     * from an earlier/lower state. Incremented in {@link #gameOverIncrGamesFinishedCount()}.
+     *<P>
+     * Before v1.1.20 this was the number of games destroyed, and {@code *STATS*}
+     * wouldn't reflect a newly finished game until all players had left that game.
      */
     protected int numberOfGamesFinished;
+
+    /**
+     * Synchronization for {@link #numberOfGamesFinished} writes.
+     * @since 2.0.00
+     */
+    private Object countFieldSync = new Object();
 
     /**
      * total number of users
@@ -846,7 +863,7 @@ public class SOCServer extends Server
      * @param mc   the maximum number of connections allowed;
      *            remember that robots count against this limit.
      * @param databaseUserName  the user name for accessing the database
-     * @param databasePassword  the password for the user
+     * @param databasePassword  the password for the db user, or ""
      * @throws SocketException  If a network setup problem occurs
      * @throws EOFException   If db setup script ran successfully and server should exit now
      * @throws SQLException   If db setup script fails
@@ -1517,31 +1534,38 @@ public class SOCServer extends Server
             if (!channelList.isMember(c, ch))
             {
                 c.put(SOCMembers.toCmd(ch, channelList.getMembers(ch)));
-                D.ebugPrintln("*** " + c.getData() + " joined the channel " + ch);
+                if (D.ebugOn)
+                    D.ebugPrintln("*** " + c.getData() + " joined the channel " + ch + " at "
+                        + DateFormat.getTimeInstance(DateFormat.SHORT).format(new Date()));
                 channelList.addMember(c, ch);
             }
         }
     }
 
     /**
-     * the connection c leaves the channel ch
-     *
-     * WARNING: MUST HAVE THE channelList.takeMonitorForChannel(ch) before
-     * calling this method
+     * Connection {@code c} leaves the channel {@code ch}.
+     * If the channel becomes empty after removing {@code c}, this method can destroy it.
+     *<P>
+     * <B>Locks:</B> Must have {@link SOCChannelList#takeMonitorForChannel(String) channelList.takeMonitorForChannel(ch)}
+     * when calling this method.
+     * May or may not have {@link SOCChannelList#takeMonitor()}, see {@code channelListLock} parameter.
      *
      * @param c  the connection
      * @param ch the channel
-     * @param channelListLock  true if we have the channelList monitor
-     * @return true if we destroyed the channel
+     * @param destroyIfEmpty  if true, this method will destroy the channel if it's now empty.
+     *           If false, the caller must call {@link #destroyChannel(String)}
+     *           before calling {@link SOCChannelList#releaseMonitor()}.
+     * @param channelListLock  true if we have the {@link SOCChannelList#takeMonitor()} lock
+     *           when called; false if it must be acquired and released within this method
+     * @return true if we destroyed the channel, or if it would have been destroyed but {@code destroyIfEmpty} is false.
      */
-    public boolean leaveChannel(StringConnection c, String ch, boolean channelListLock)
+    public boolean leaveChannel
+        (final StringConnection c, final String ch, final boolean destroyIfEmpty, final boolean channelListLock)
     {
         if (c == null)
             return false;
 
         D.ebugPrintln("leaveChannel: " + c.getData() + " " + ch + " " + channelListLock);
-
-        boolean result = false;
 
         if (channelList.isMember(c, ch))
         {
@@ -1549,16 +1573,17 @@ public class SOCServer extends Server
 
             SOCLeave leaveMessage = new SOCLeave((String) c.getData(), c.host(), ch);
             messageToChannelWithMon(ch, leaveMessage);
-            D.ebugPrintln("*** " + (String) c.getData() + " left the channel " + ch);
+            if (D.ebugOn)
+                D.ebugPrintln("*** " + c.getData() + " left the channel " + ch + " at "
+                    + DateFormat.getTimeInstance(DateFormat.SHORT).format(new Date()));
         }
 
-        if (channelList.isChannelEmpty(ch))
+        final boolean isEmpty = channelList.isChannelEmpty(ch);
+        if (isEmpty && destroyIfEmpty)
         {
-            final String chOwner = channelList.getOwner(ch);
-
             if (channelListLock)
             {
-                channelList.deleteChannel(ch);
+                destroyChannel(ch);
             }
             else
             {
@@ -1566,7 +1591,7 @@ public class SOCServer extends Server
 
                 try
                 {
-                    channelList.deleteChannel(ch);
+                    destroyChannel(ch);
                 }
                 catch (Exception e)
                 {
@@ -1575,16 +1600,31 @@ public class SOCServer extends Server
 
                 channelList.releaseMonitor();
             }
-
-            // Reduce the owner's channels-active count
-            StringConnection oConn = conns.get(chOwner);
-            if (oConn != null)
-                ((SOCClientData) oConn.getAppData()).deletedChannel();
-
-            result = true;
         }
 
-        return result;
+        return isEmpty;
+    }
+
+    /**
+     * Destroy a channel and then clean up related data, such as the owner's count of
+     * {@link SOCClientData#getcurrentCreatedChannels()}.
+     * Calls {@link SOCChannelList#deleteChannel(String)}.
+     *<P>
+     * <B>Locks:</B> Must have {@link #channelList}{@link SOCChannelList#takeMonitor() .takeMonitor()}
+     * before calling this method.
+     *
+     * @param ch  Name of the channel to destroy
+     * @see #leaveChannel(StringConnection, String, boolean, boolean)
+     * @since 1.1.20
+     */
+    protected final void destroyChannel(final String ch)
+    {
+        channelList.deleteChannel(ch);
+
+        // Reduce the owner's channels-active count
+        StringConnection oConn = conns.get(channelList.getOwner(ch));
+        if (oConn != null)
+            ((SOCClientData) oConn.getAppData()).deletedChannel();
     }
 
     /**
@@ -1596,7 +1636,8 @@ public class SOCServer extends Server
      * At that point, server will look for robots to fill empty seats.
      *
      * @param c    the Connection to be added to the game; its name, version, and locale should already be set.
-     * @param gaName  the name of the game
+     * @param gaName  the name of the game.  Not validated or trimmed, see
+     *             {@link #createOrJoinGameIfUserOK(StringConnection, String, String, String, Map)} for that.
      * @param gaOpts  if creating a game with options, its {@link SOCGameOption}s; otherwise null.
      *                Should already be validated, by calling
      *                {@link SOCGameOption#adjustOptionsToKnown(Map, Map, boolean)}
@@ -1723,7 +1764,8 @@ public class SOCServer extends Server
      * @param c    the Connection creating and owning this game; its name, version, and locale should already be set.
      *             This client connection will be added as a member of the game, and its {@link SOCClientData#createdGame()}
      *             will be called.  Can be null, especially if {@code isBotsOnly}.
-     * @param gaName  the name of the game, no game should exist yet with this name
+     * @param gaName  the name of the game, no game should exist yet with this name. Not validated or trimmed, see
+     *             {@link #createOrJoinGameIfUserOK(StringConnection, String, String, String, Map)} for that.
      * @param gaOpts  if creating a game with options, its {@link SOCGameOption}s; otherwise null.
      *                Should already be validated, by calling
      *                {@link SOCGameOption#adjustOptionsToKnown(Map, Map, boolean)}
@@ -1913,7 +1955,15 @@ public class SOCServer extends Server
     /**
      * the connection c leaves the game gm.  Clean up; if needed, force the current player's turn to end.
      *<P>
-     * <B>Locks:</b> Has {@link SOCGameList#takeMonitorForGame(String) gameList.takeMonitorForGame(gm)}
+     * If the game becomes empty after removing {@code c}, this method can destroy it if all these
+     * conditions are true (determined by {@link GameHandler#leaveGame(SOCGame, StringConnection)}):
+     * <UL>
+     *  <LI> {@code c} was the last non-robot player
+     *  <LI> No one was watching/observing
+     *  <LI> {@link SOCGame#isBotsOnly} flag is false
+     * </UL>
+     *<P>
+     * <B>Locks:</B> Has {@link SOCGameList#takeMonitorForGame(String) gameList.takeMonitorForGame(gm)}
      * when calling this method; should not have {@link SOCGame#takeMonitor()}.
      * May or may not have {@link SOCGameList#takeMonitor()}, see {@code gameListLock} parameter.
      *
@@ -1923,13 +1973,15 @@ public class SOCServer extends Server
      *           any communication about leaving the game, in case they are
      *           still connected and in other games.
      * @param gm the game
-     * @param gameListLock  true if we have the {@link SOCGameList#takeMonitor()} lock
-     * @return true if the game was destroyed (because c was the last non-robot player,
-     *              and no one was watching, and not {@link SOCGame#isBotsOnly})
+     * @param destroyIfEmpty  if true, this method will destroy the game if it's now empty.
+     *           If false, the caller must call {@link #destroyGame(String)}
+     *           before calling {@link SOCGameList#releaseMonitor()}.
+     * @param gameListLock  true if we have the {@link SOCGameList#takeMonitor()} lock when called;
+     *           false if it must be acquired and released within this method
+     * @return true if the game was destroyed, or if it would have been destroyed but {@code destroyIfEmpty} is false.
      */
-    public boolean leaveGame(StringConnection c, String gm, final boolean gameListLock)
+    public boolean leaveGame(StringConnection c, String gm, final boolean destroyIfEmpty, final boolean gameListLock)
     {
-        System.err.println("L712: leaveGame(" + c + ", " + gm + ")");  // JM TEMP
         if (c == null)
         {
             return false;  // <---- Early return: no connection ----
@@ -1954,7 +2006,7 @@ public class SOCServer extends Server
                 // should not happen. If no handler, game data is inconsistent
         }
 
-        if (gameDestroyed)
+        if (gameDestroyed && destroyIfEmpty)
         {
             /**
              * if the game has no players, or if they're all
@@ -1979,8 +2031,6 @@ public class SOCServer extends Server
 
                 gameList.releaseMonitor();
             }
-
-            gameDestroyed = true;
         }
 
         //D.ebugPrintln("*** gameDestroyed = "+gameDestroyed+" for "+gm);
@@ -1989,7 +2039,7 @@ public class SOCServer extends Server
 
     /**
      * shuffle the indexes to distribute load among {@link #robots}
-     * @return a shuffled array of robot indexes, from 0 to ({#link {@link #robots}}.size() - 1
+     * @return a shuffled array of robot indexes, from 0 to ({@link #robots}.size() - 1)
      * @since 1.1.06
      */
     int[] robotShuffleForJoin()
@@ -2085,15 +2135,17 @@ public class SOCServer extends Server
     }
 
     /**
-     * destroy the game
-     *
-     * WARNING: MUST HAVE THE gameList.takeMonitor() before
-     * calling this method
+     * Destroy a game and clean up related data, such as the owner's count of
+     * {@link SOCClientData#getCurrentCreatedGames()}.
      *<P>
      * Note that if this game had the {@link SOCGame#isBotsOnly} flag, and {@link #numRobotOnlyGamesRemaining} &gt; 0,
      *  will call {@link #startRobotOnlyGames(boolean)}.
+     *<P>
+     * <B>Locks:</B> Must have {@link #gameList}{@link SOCGameList#takeMonitor() .takeMonitor()}
+     * before calling this method.
      *
-     * @param gm  the name of the game
+     * @param gm  Name of the game to destroy
+     * @see #leaveGame(StringConnection, String, boolean, boolean)
      * @see #destroyGameAndBroadcast(String, String)
      */
     public void destroyGame(String gm)
@@ -2105,10 +2157,6 @@ public class SOCServer extends Server
         if (cg == null)
             return;
 
-        if (cg.getGameState() == SOCGame.OVER)
-        {
-            numberOfGamesFinished++;
-        }
         final boolean wasBotsOnly = cg.isBotsOnly;
 
         ///
@@ -2230,10 +2278,10 @@ public class SOCServer extends Server
     }
 
     /**
-     * True if the server was constructed in with a property or command line argument which is used
+     * True if the server was constructed with a property or command line argument which is used
      * to run the server in Utility Mode instead of Server Mode.  In Utility Mode the server reads
      * its properties, initializes its database connection if any, and performs one task such as a
-     * password reset or table/index creation. It won't listen at a TCP port or start other threads.
+     * password reset or table/index creation. It won't listen on a TCP port or start other threads.
      *<P>
      * Utility Mode may also set a status message, see {@link #getUtilityModeMessage()}.
      *<P>
@@ -2320,18 +2368,17 @@ public class SOCServer extends Server
     }
 
     /**
-     * the connection c leaves all channels it was in
+     * Connection {@code c} is leaving the server; remove from all channels it was in.
+     * In channels where {@code c} was the last connection, calls {@link #destroyChannel(String)}.
      *
      * @param c  the connection
-     * @return   the channels it was in
      */
-    public Vector<?> leaveAllChannels(StringConnection c)
+    public void leaveAllChannels(StringConnection c)
     {
         if (c == null)
-            return null;
+            return;
 
-        Vector<?> ret = new Vector<Object>();
-        Vector<String> destroyed = new Vector<String>();
+        List<String> toDestroy = new ArrayList<String>();  // channels where c was the last member
 
         channelList.takeMonitor();
 
@@ -2348,7 +2395,7 @@ public class SOCServer extends Server
 
                     try
                     {
-                        thisChannelDestroyed = leaveChannel(c, ch, true);
+                        thisChannelDestroyed = leaveChannel(c, ch, false, true);
                     }
                     catch (Exception e)
                     {
@@ -2358,9 +2405,7 @@ public class SOCServer extends Server
                     channelList.releaseMonitorForChannel(ch);
 
                     if (thisChannelDestroyed)
-                    {
-                        destroyed.addElement(ch);
-                    }
+                        toDestroy.add(ch);
                 }
             }
         }
@@ -2369,33 +2414,33 @@ public class SOCServer extends Server
             D.ebugPrintStackTrace(e, "Exception in leaveAllChannels");
         }
 
+        /** After iterating through all channels, destroy newly empty ones */
+        for (String ch : toDestroy)
+            destroyChannel(ch);
+
         channelList.releaseMonitor();
 
         /**
          * let everyone know about the destroyed channels
          */
-        for (Enumeration<String> de = destroyed.elements(); de.hasMoreElements();)
+        for (String ga : toDestroy)
         {
-            String ga = de.nextElement();
             broadcast(SOCDeleteChannel.toCmd(ga));
         }
-
-        return ret;
     }
 
     /**
-     * the connection c leaves all games it was in
+     * Connection {@code c} is leaving the server; remove from all games it was in.
+     * In games where {@code c} was the last human player, calls {@link #destroyGame(String)}.
      *
      * @param c  the connection
-     * @return   the games it was in
      */
-    public Vector<String> leaveAllGames(StringConnection c)
+    public void leaveAllGames(StringConnection c)
     {
         if (c == null)
-            return null;
+            return;
 
-        Vector<String> ret = new Vector<String>();
-        Vector<String> destroyed = new Vector<String>();
+        List<String> toDestroy = new ArrayList<String>();  // games where c was the last human player
 
         gameList.takeMonitor();
 
@@ -2412,7 +2457,7 @@ public class SOCServer extends Server
 
                     try
                     {
-                        thisGameDestroyed = leaveGame(c, ga, true);
+                        thisGameDestroyed = leaveGame(c, ga, false, true);
                     }
                     catch (Exception e)
                     {
@@ -2422,11 +2467,7 @@ public class SOCServer extends Server
                     gameList.releaseMonitorForGame(ga);
 
                     if (thisGameDestroyed)
-                    {
-                        destroyed.addElement(ga);
-                    }
-
-                    ret.addElement(ga);
+                        toDestroy.add(ga);
                 }
             }
         }
@@ -2435,19 +2476,20 @@ public class SOCServer extends Server
             D.ebugPrintStackTrace(e, "Exception in leaveAllGames");
         }
 
+        /** After iterating through all games, destroy newly empty ones */
+        for (String ga : toDestroy)
+            destroyGame(ga);
+
         gameList.releaseMonitor();
 
         /**
          * let everyone know about the destroyed games
          */
-        for (Enumeration<String> de = destroyed.elements(); de.hasMoreElements();)
+        for (String ga : toDestroy)
         {
-            String ga = de.nextElement();
             D.ebugPrintln("** Broadcasting SOCDeleteGame " + ga);
             broadcast(SOCDeleteGame.toCmd(ga));
         }
-
-        return ret;
     }
 
     /**
@@ -3686,7 +3728,6 @@ public class SOCServer extends Server
     private void nameConnection(StringConnection c, boolean isReplacing)
         throws IllegalArgumentException
     {
-        System.err.println("L1819: nameConn(" + c + ", " + isReplacing + ")");  // JM TEMP
         StringConnection oldConn = null;
         if (isReplacing)
         {
@@ -4227,7 +4268,7 @@ public class SOCServer extends Server
 
                             try
                             {
-                                channelList.deleteChannel(textMsgMes.getChannel());
+                                destroyChannel(textMsgMes.getChannel());
                             }
                             catch (Exception e)
                             {
@@ -4398,18 +4439,63 @@ public class SOCServer extends Server
     }  // processCommand
 
     /**
-     * Used by {@link #processDebugCommand(StringConnection, String, String, String)}}
-     * when *HELP* is requested.
-     * @since 1.1.07
-     * @see GameHandler#getDebugCommandsHelp()
+     * List and description of general commands that any game member can run.
+     * Used by {@link #processDebugCommand(StringConnection, String, String, String)}
+     * when {@code *HELP*} is requested.
+     * @see #ADMIN_USER_COMMANDS_HELP
+     * @see #DEBUG_COMMANDS_HELP
+     * @since 1.1.20
      */
-    public static final String[] DEBUG_COMMANDS_HELP =
+    public static final String[] GENERAL_COMMANDS_HELP =
         {
         "--- General Commands ---",
         "*ADDTIME*  add 30 minutes before game expiration",
         "*CHECKTIME*  print time remaining before expiration",
+        "*HELP*   info on available commands",
+        "*STATS*   server stats and current-game stats",
         "*VERSION*  show version and build information",
         "*WHO*   show players and observers of this game",
+        };
+
+    /**
+     * Heading to show above any admin commands the user is authorized to run.  Declared separately
+     * from {@link #ADMIN_USER_COMMANDS_HELP} for use when other admin types are added.
+     *<br>
+     *  {@code --- Admin Commands ---}
+     *
+     * @since 1.1.20
+     */
+    private static final String ADMIN_COMMANDS_HEADING = "--- Admin Commands ---";
+
+    /**
+     * List and description of user-admin commands. Along with {@link #GENERAL_COMMANDS_HELP}
+     * and {@link #DEBUG_COMMANDS_HELP}, used by
+     * {@link #processDebugCommand(StringConnection, String, String, String)}
+     * when {@code *HELP*} is requested by a debug/admin user who passes
+     * {@link #isUserDBUserAdmin(String, boolean) isUserDBUserAdmin(username, true)}.
+     * Preceded by {@link #ADMIN_COMMANDS_HEADING}.
+     * @since 1.1.20
+     * @see #GENERAL_COMMANDS_HELP
+     * @see #DEBUG_COMMANDS_HELP
+     */
+    public static final String[] ADMIN_USER_COMMANDS_HELP =
+        {
+        "*WHO* gameName   show players and observers of gameName",
+        "*WHO* *  show all connected clients",
+        };
+
+    /**
+     * List and description of debug/admin commands. Along with {@link #GENERAL_COMMANDS_HELP}
+     * and {@link #ADMIN_USER_COMMANDS_HELP},
+     * used by {@link #processDebugCommand(StringConnection, String, String, String)}
+     * when {@code *HELP*} is requested by a debug/admin user.
+     * @since 1.1.07
+     * @see #GENERAL_COMMANDS_HELP
+     * @see #ADMIN_USER_COMMANDS_HELP
+     * @see GameHandler#getDebugCommandsHelp()
+     */
+    public static final String[] DEBUG_COMMANDS_HELP =
+        {
         "--- Debug Commands ---",
         "*BCAST*  broadcast msg to all games/channels",
         "*GC*    trigger the java garbage-collect",
@@ -4417,8 +4503,7 @@ public class SOCServer extends Server
         "*KILLGAME*  end the current game",
         "*RESETBOT* botname  End a bot's connection",
         "*STARTBOTGAME* [maxBots]  Start this game (no humans have sat) with bots only",
-        "*STATS*   server stats and current-game stats",
-        "*STOP*  kill the server"
+        "*STOP*  kill the server",
         };
 
     /**
@@ -4429,7 +4514,11 @@ public class SOCServer extends Server
      * to check for those.
      *<P>
      * Check {@link #allowDebugUser} before calling this method.
-     * See {@link #DEBUG_COMMANDS_HELP} and {@link GameHandler#getDebugCommandsHelp()} for list of commands.
+     * For list of commands see {@link #GENERAL_COMMANDS_HELP}, {@link #DEBUG_COMMANDS_HELP},
+     * {@link #ADMIN_USER_COMMANDS_HELP}, and {@link GameHandler#getDebugCommandsHelp()}.
+     * "Unprivileged" general commands are handled by
+     * {@link #handleGAMETEXTMSG(StringConnection, SOCGameTextMsg)}.
+     *
      * @param debugCli  Client sending the potential debug command
      * @param ga  Game in which the message is sent
      * @param dcmd   Text message which may be a debug command
@@ -4438,26 +4527,9 @@ public class SOCServer extends Server
      */
     public boolean processDebugCommand(StringConnection debugCli, String ga, final String dcmd, final String dcmdU)
     {
-        // See handleGAMETEXTMSG for "unprivileged" debug commands like *STATS* and *ADDTIME*.
+        // See handleGAMETEXTMSG for "unprivileged" debug commands like *HELP*, *STATS*, and *ADDTIME*.
 
-        if (dcmdU.startsWith("*HELP"))
-        {
-            for (int i = 0; i < DEBUG_COMMANDS_HELP.length; ++i)
-                messageToPlayer(debugCli, ga, DEBUG_COMMANDS_HELP[i]);
-
-            GameHandler hand = gameList.getGameTypeHandler(ga);
-            if (hand != null)
-            {
-                final String[] GAMETYPE_DEBUG_HELP = hand.getDebugCommandsHelp();
-                if (GAMETYPE_DEBUG_HELP != null)
-                    for (int i = 0; i < GAMETYPE_DEBUG_HELP.length; ++i)
-                        messageToPlayer(debugCli, ga, GAMETYPE_DEBUG_HELP[i]);
-            }
-
-            return true;
-        }
-
-        boolean isCmd = true;
+        boolean isCmd = true;  // eventual return value; will set false if unrecognized
 
         if (dcmdU.startsWith("*KILLGAME*"))
         {
@@ -4690,9 +4762,9 @@ public class SOCServer extends Server
      * does nothing.  Won't check username or password, just returns {@link #AUTH_OR_REJECT__OK}.
      *
      * @param c  Client's connection
-     * @param msgUser  Client username (nickname) to validate and authenticate
+     * @param msgUser  Client username (nickname) to validate and authenticate; will be {@link String#trim() trim()med}.
      * @param msgPass  Password to supply to {@link #authenticateUser(StringConnection, String, String)},
-     *     or ""; please trim string before calling
+     *     or ""; will be {@link String#trim() trim()med}.
      * @param cliVers  Client version, from {@link StringConnection#getVersion()}
      * @param doNameConnection  True if successful auth of an unnamed connection should have this method call
      *     {@link StringConnection#setData(Object) c.setData(msgUser)} and
@@ -4711,7 +4783,7 @@ public class SOCServer extends Server
      * @since 1.1.19
      */
     private int authOrRejectClientUser
-        (StringConnection c, final String msgUser, String msgPass, final int cliVers,
+        (StringConnection c, String msgUser, String msgPass, final int cliVers,
          final boolean doNameConnection, final boolean allowTakeover)
     {
         if (c.getData() != null)
@@ -4720,6 +4792,9 @@ public class SOCServer extends Server
         }
 
         boolean isTakingOver = false;  // will set true if a human player is replacing another player in the game
+
+        msgUser = msgUser.trim();
+        msgPass = msgPass.trim();
 
         /**
          * If connection doesn't already have a nickname, check that the nickname is ok
@@ -4737,7 +4812,11 @@ public class SOCServer extends Server
          * whether a new replacement connection can "take over" the existing one.
          */
         final int nameTimeout = checkNickname(msgUser, c, (msgPass != null) && (msgPass.trim().length() > 0));
-        System.err.println("L4910 past checkNickname at " + System.currentTimeMillis());
+        System.err.println
+            ("L4910 past checkNickname at " + System.currentTimeMillis()
+             + (((nameTimeout == 0) || (nameTimeout == -1))
+                ? (" for " + msgUser)
+                : ""));
 
         if (nameTimeout == -1)
         {
@@ -4778,10 +4857,8 @@ public class SOCServer extends Server
             if (msgPass.length() == 0)
             {
                 c.put(SOCStatusMessage.toCmd
-                        (((cliVers >= SOCAuthRequest.VERSION_FOR_AUTHREQUEST)
-                          ? SOCStatusMessage.SV_PW_REQUIRED
-                          : SOCStatusMessage.SV_PW_WRONG),
-                         cliVers, "This server requires user accounts and passwords."));
+                        (SOCStatusMessage.SV_PW_REQUIRED, cliVers,
+                         "This server requires user accounts and passwords."));
                 return AUTH_OR_REJECT__FAILED;
             }
 
@@ -4818,7 +4895,7 @@ public class SOCServer extends Server
      * if they're not in the db, and no password, then ok.
      *
      * @param c         the user's connection
-     * @param userName  the user's nickname
+     * @param userName  the user's nickname; trim before calling
      * @param password  the user's password; trim before calling
      * @return true if the user has been authenticated
      */
@@ -4874,6 +4951,27 @@ public class SOCServer extends Server
         //
         //SOCDBHelper.recordLogin(userName, c.host(), currentTime.getTime());
         return true;
+    }
+
+    /**
+     * Is this username on the {@link #databaseUserAdmins} whitelist, if that whitelist is being used?
+     * @param uname  Username to check; if null, returns false.
+     * @param requireList  If true, the whitelist cannot be null.
+     *     If false, this function returns true for any user when we aren't using the whitelist and its field is null.
+     * @return  True only if the user is on the whitelist, or there is no list and {@code requireList} is false
+     * @since 1.1.20
+     */
+    private boolean isUserDBUserAdmin(final String uname, final boolean requireList)
+    {
+        if (uname == null)
+            return false;
+
+        // Check if we're using a user admin whitelist, and if uname's on it; this check is also in handleCREATEACCOUNT.
+
+        if (databaseUserAdmins == null)
+            return ! requireList;
+        else
+            return databaseUserAdmins.contains(uname);
     }
 
     /**
@@ -5046,6 +5144,9 @@ public class SOCServer extends Server
      * Handle the "join a channel" message.
      * If client hasn't yet sent its version, assume is
      * version 1.0.00 ({@link #CLI_VERSION_ASSUMED_GUESS}), disconnect if too low.
+     *<P>
+     * Requested channel name must pass {@link SOCMessage#isSingleLineAndSafe(String)}.
+     * Channel name {@code "*"} is also rejected to avoid conflicts with admin commands.
      *
      * @param c  the connection that sent the message
      * @param mes  the message
@@ -5058,10 +5159,8 @@ public class SOCServer extends Server
         D.ebugPrintln("handleJOIN: " + mes);
 
         int cliVers = c.getVersion();
-        final String msgUser = mes.getNickname().trim();
+        final String msgUser = mes.getNickname().trim();  // trim here because we'll send it in messages to clients
         String msgPass = mes.getPassword();
-        if (msgPass != null)
-            msgPass = msgPass.trim();
 
         /**
          * Check the reported version; if none, assume 1000 (1.0.00)
@@ -5090,7 +5189,8 @@ public class SOCServer extends Server
            }
          */
         final String ch = mes.getChannel().trim();
-        if (! SOCMessage.isSingleLineAndSafe(ch))
+        if ( (! SOCMessage.isSingleLineAndSafe(ch))
+             || "*".equals(ch))
         {
             c.put(SOCStatusMessage.toCmd
                     (SOCStatusMessage.SV_NEWGAME_NAME_REJECTED, cliVers,
@@ -5159,7 +5259,9 @@ public class SOCServer extends Server
             channelList.releaseMonitor();
             broadcast(SOCNewChannel.toCmd(ch));
             c.put(SOCMembers.toCmd(ch, channelList.getMembers(ch)));
-            D.ebugPrintln("*** " + c.getData() + " joined the channel " + ch);
+            if (D.ebugOn)
+                D.ebugPrintln("*** " + c.getData() + " joined the channel " + ch + " at "
+                    + DateFormat.getTimeInstance(DateFormat.SHORT).format(new Date()));
             channelList.takeMonitorForChannel(ch);
 
             try
@@ -5198,7 +5300,7 @@ public class SOCServer extends Server
 
         try
         {
-            destroyedChannel = leaveChannel(c, mes.getChannel(), false);
+            destroyedChannel = leaveChannel(c, mes.getChannel(), true, false);
         }
         catch (Exception e)
         {
@@ -5402,6 +5504,8 @@ public class SOCServer extends Server
             if (ga.isPractice)
             {
                 messageToPlayerKeyed(c, gaName, "reply.addtime.practice.never");  // ">>> Practice games never expire."
+            } else if (ga.getGameState() >= SOCGame.OVER) {
+                messageToPlayerKeyed(c, gaName, "reply.addtime.game_over");  // "This game is over, cannot extend its time."
             } else {
                 // check game time currently remaining: if already more than
                 // the original GAME_TIME_EXPIRE_MINUTES, don't add more now.
@@ -5488,54 +5592,59 @@ public class SOCServer extends Server
         }
         else if (cmdTxtUC.startsWith("*WHO*"))
         {
-            Vector<StringConnection> gameMembers = null;
-            gameList.takeMonitorForGame(gaName);
-
-            try
-            {
-                gameMembers = gameList.getMembers(gaName);
-            }
-            catch (Exception e)
-            {
-                D.ebugPrintStackTrace(e, "Exception in *WHO* (gameMembers)");
-            }
-
-            gameList.releaseMonitorForGame(gaName);
-
-            if (gameMembers != null)
-            {
-                Enumeration<StringConnection> membersEnum = gameMembers.elements();
-
-                while (membersEnum.hasMoreElements())
-                {
-                    StringConnection conn = membersEnum.nextElement();
-                    messageToGame(gaName, "> " + conn.getData());
-                }
-            }
+            processDebugCommand_who(c, ga, cmdText);
         }
 
         //
-        // useful for debugging
+        // check for admin/debugging commands
         //
         // 1.1.07: all practice games are debug mode, for ease of debugging;
         //         not much use for a chat window in a practice game anyway.
         //
-        else if ((allowDebugUser && plName.equals("debug")) || (c instanceof LocalStringConnection))
-        {
-            if (! processDebugCommand(c, ga.getName(), cmdText, cmdTxtUC))
-            {
-                //
-                // Send the message to the members of the game
-                //
-                messageToGame(gaName, new SOCGameTextMsg(gaName, plName, cmdText));
-            }
-        }
         else
         {
-            //
-            // Send the message to the members of the game
-            //
-            messageToGame(gaName, new SOCGameTextMsg(gaName, plName, cmdText));
+            final boolean userIsDebug =
+                ((allowDebugUser && plName.equals("debug"))
+                || (c instanceof LocalStringConnection));
+
+            if (cmdTxtUC.startsWith("*HELP"))
+            {
+                for (int i = 0; i < GENERAL_COMMANDS_HELP.length; ++i)
+                    messageToPlayer(c, gaName, GENERAL_COMMANDS_HELP[i]);
+
+                if ((userIsDebug && ! (c instanceof LocalStringConnection))  // no user admins in practice games
+                    || isUserDBUserAdmin(plName, true))
+                {
+                    messageToPlayer(c, gaName, ADMIN_COMMANDS_HEADING);
+                    for (int i = 0; i < ADMIN_USER_COMMANDS_HELP.length; ++i)
+                        messageToPlayer(c, gaName, ADMIN_USER_COMMANDS_HELP[i]);
+                }
+
+                if (userIsDebug)
+                {
+                    for (int i = 0; i < DEBUG_COMMANDS_HELP.length; ++i)
+                        messageToPlayer(c, gaName, DEBUG_COMMANDS_HELP[i]);
+
+                    GameHandler hand = gameList.getGameTypeHandler(gaName);
+                    if (hand != null)
+                    {
+                        final String[] GAMETYPE_DEBUG_HELP = hand.getDebugCommandsHelp();
+                        if (GAMETYPE_DEBUG_HELP != null)
+                            for (int i = 0; i < GAMETYPE_DEBUG_HELP.length; ++i)
+                                messageToPlayer(c, gaName, GAMETYPE_DEBUG_HELP[i]);
+                    }
+                }
+            }
+            else
+            {
+                boolean isCmd = userIsDebug && processDebugCommand(c, ga.getName(), cmdText, cmdTxtUC);
+
+                if (! isCmd)
+                    //
+                    // Send the message to the members of the game
+                    //
+                    messageToGame(gaName, new SOCGameTextMsg(gaName, plName, cmdText));
+            }
         }
 
         //saveCurrentGameEventRecord(gameTextMsgMes.getGame());
@@ -5592,6 +5701,153 @@ public class SOCServer extends Server
     }
 
     /**
+     * Process unprivileged command {@code *WHO*} to show members of current game,
+     * or privileged {@code *WHO* gameName|all|*} to show all connected clients or some other game's members.
+     *<P>
+     * <B>Locks:</B> Takes/releases {@link SOCGameList#takeMonitorForGame(String) gameList.takeMonitorForGame(gaName)}
+     * to call {@link SOCGameListAtServer#getMembers(String)}.
+     *
+     * @param c  Client sending the *WHO* command
+     * @param ga  Game in which the command was sent
+     * @param cmdText   Text of *WHO* command
+     * @since 1.1.20
+     */
+    private void processDebugCommand_who
+        (final StringConnection c, final SOCGame ga, final String cmdText)
+    {
+        final String gaName = ga.getName();  // name of game where c is connected and sent *WHO* command
+        String gaNameWho = gaName;  // name of game to find members; if sendToCli, not equal to gaName
+        boolean sendToCli = false;  // if true, send member list only to c instead of whole game
+
+        int i = cmdText.indexOf(' ');
+        if (i != -1)
+        {
+            // look for a game name or */all
+            String gname = cmdText.substring(i+1).trim();
+
+            if (gname.length() > 0)
+            {
+                // Check if using user admins; if not, if using debug user
+
+                final String uname = (String) c.getData();
+                boolean isAdmin = isUserDBUserAdmin(uname, true);
+                if (! isAdmin)
+                    isAdmin = (allowDebugUser && uname.equals("debug"));
+                if (! isAdmin)
+                {
+                    messageToPlayerKeyed(c, gaName, "reply.must_be_admin.view");
+                        // "Must be an administrator to view that."
+                    return;
+                }
+
+                sendToCli = true;
+
+                if (gname.equals("*") || gname.toUpperCase(Locale.US).equals("ALL"))
+                {
+                    // Instead of listing the game's members, list all connected clients.
+                    // Do as little as possible inside synchronization block.
+
+                    final ArrayList<StringBuilder> sbs = new ArrayList<StringBuilder>();
+                    StringBuilder sb = new StringBuilder(c.getLocalized("reply.who.conn_to_srv"));
+                        // "Currently connected to server:"
+                    sbs.add(sb);
+                    sb = new StringBuilder("- ");
+                    sbs.add(sb);
+
+                    int nUnnamed;
+                    synchronized (unnamedConns)
+                    {
+                        nUnnamed = unnamedConns.size();
+
+                        Enumeration<StringConnection> ec = getConnections();  // the named ones
+                        while (ec.hasMoreElements())
+                        {
+                            String cname = (String) (ec.nextElement().getData());
+
+                            int L = sb.length();
+                            if (L + cname.length() > 50)
+                            {
+                                sb.append(',');  // TODO I18N list
+                                sb = new StringBuilder("- ");
+                                sbs.add(sb);
+                                L = 2;
+                            }
+
+                            if (L > 2)
+                                sb.append(", ");  // TODO I18N list with "line wrap"
+                            sb.append(cname);
+                        }
+                    }
+
+                    if (nUnnamed != 0)
+                    {
+                        final String unnamed = c.getLocalized("reply.who.and_unnamed", Integer.valueOf(nUnnamed));
+                            // "and {0} unnamed connections"
+                        if (sb.length() + unnamed.length() + 2 > 50)
+                        {
+                            sb.append(',');  // TODO I18N list
+                            sb = new StringBuilder("- ");
+                            sb.append(unnamed);
+                            sbs.add(sb);
+                        } else {
+                            sb.append(", ");  // TODO I18N list
+                            sb.append(unnamed);
+                        }
+                    }
+
+                    for (StringBuilder sbb : sbs)
+                        messageToPlayer(c, gaName, sbb.toString());
+
+                    return;  // <--- Early return; Not listing a game's members ---
+                }
+
+                if (gameList.isGame(gname))
+                {
+                    gaNameWho = gname;
+                } else {
+                    messageToPlayerKeyed(c, gaName, "reply.game.not.found");  // "Game not found."
+                    return;
+                }
+            }
+        }
+
+        Vector<StringConnection> gameMembers = null;
+
+        gameList.takeMonitorForGame(gaNameWho);
+        try
+        {
+            gameMembers = gameList.getMembers(gaNameWho);
+            if (! sendToCli)
+                messageToGameKeyed(ga, false, "reply.game_members.this");  // "This game's members:"
+        }
+        catch (Exception e)
+        {
+            D.ebugPrintStackTrace(e, "Exception in *WHO* (gameMembers)");
+        }
+        gameList.releaseMonitorForGame(gaNameWho);
+
+        if (gameMembers == null)
+        {
+            return;  // unlikely since empty games are destroyed
+        }
+
+        if (sendToCli)
+            messageToPlayerKeyed(c, gaName, "reply.game_members.of", gaNameWho);  // "Members of game {0}:"
+
+        Enumeration<StringConnection> membersEnum = gameMembers.elements();
+        while (membersEnum.hasMoreElements())
+        {
+            StringConnection conn = membersEnum.nextElement();
+            String mNameStr = "> " + conn.getData();
+
+            if (sendToCli)
+                messageToPlayer(c, gaName, mNameStr);
+            else
+                messageToGame(gaName, mNameStr);
+        }
+    }
+
+    /**
      * Handle the optional {@link SOCAuthRequest "authentication request"} message.
      * Sent by clients since v1.1.19 before creating a game or when connecting using {@code SOCAccountClient}.
      *<P>
@@ -5600,6 +5856,7 @@ public class SOCServer extends Server
      *
      * @param c  the connection that sent the message
      * @param mes  the message
+     * @see #isUserDBUserAdmin(String, boolean)
      * @since 1.1.19
      */
     private void handleAUTHREQUEST(StringConnection c, final SOCAuthRequest mes)
@@ -5628,15 +5885,16 @@ public class SOCServer extends Server
 
             // Check user authentication.  Don't call setData or nameConnection yet, in case
             // of role-specific things to check and reject during this initial connection.
-            final int authResult = authOrRejectClientUser(c, mes.nickname, mes.password, cliVersion, false, false);
+            final String mesUser = mes.nickname.trim();  // trim here because we'll send it in messages to clients
+            final int authResult = authOrRejectClientUser(c, mesUser, mes.password, cliVersion, false, false);
 
             if (authResult == AUTH_OR_REJECT__FAILED)
                 return;  // <---- Early return; authOrRejectClientUser sent the status message ----
 
             if (mes.role.equals(SOCAuthRequest.ROLE_USER_ADMIN))
             {
-                // Check if we're using a user admin whitelist; this check is also in handleCREATEACCOUNT.
-                if ((databaseUserAdmins != null) && ! databaseUserAdmins.contains(mes.nickname))
+                // Check if we're using a user admin whitelist
+                if (! isUserDBUserAdmin(mesUser, false))
                 {
                     c.put(SOCStatusMessage.toCmd
                             (SOCStatusMessage.SV_ACCT_NOT_CREATED_DENIED, cliVersion,
@@ -5644,7 +5902,7 @@ public class SOCServer extends Server
                                 // "Your account is not authorized to create accounts."
 
                     printAuditMessage
-                        (mes.nickname,
+                        (mesUser,
                          "Requested jsettlers account creation, this requester not on account admin whitelist",
                          null, null, c.host());
 
@@ -5653,7 +5911,7 @@ public class SOCServer extends Server
             }
 
             // no role-specific problems: complete the authentication
-            c.setData(mes.nickname);
+            c.setData(mesUser);
             nameConnection(c, false);
         }
 
@@ -5689,7 +5947,7 @@ public class SOCServer extends Server
         }
 
         createOrJoinGameIfUserOK
-            (c, mes.getNickname().trim(), mes.getPassword(), mes.getGame().trim(), null);
+            (c, mes.getNickname(), mes.getPassword(), mes.getGame(), null);
     }
 
     /**
@@ -5731,9 +5989,12 @@ public class SOCServer extends Server
      * @param c connection requesting the game, must not be null
      * @param msgUser username of client in message. Must pass {@link SOCMessage#isSingleLineAndSafe(String)}
      *                  and be at most {@link #PLAYER_NAME_MAX_LENGTH} characters.
-     * @param msgPass password of client in message
+     *                  Calls {@link String#trim() msgUser.trim()} before checking length.
+     * @param msgPass password of client in message; will be {@link String#trim() trim()med}.
      * @param gameName  name of game to create/join. Must pass {@link SOCMessage#isSingleLineAndSafe(String)}
      *                  and be at most {@link #GAME_NAME_MAX_LENGTH} characters.
+     *                  Calls {@link String#trim() gameName.trim()} before checking length.
+     *                  Game name {@code "*"} is also rejected to avoid conflicts with admin commands.
      * @param gameOpts  if game has options, contains {@link SOCGameOption} to create new game; if not null, will not join an existing game.
      *                  Will validate and adjust by calling
      *                  {@link SOCGameOption#adjustOptionsToKnown(Map, Map, boolean)}
@@ -5742,12 +6003,16 @@ public class SOCServer extends Server
      * @since 1.1.07
      */
     private void createOrJoinGameIfUserOK
-        (StringConnection c, final String msgUser, String msgPass,
-         final String gameName, Map<String, SOCGameOption> gameOpts)
+        (StringConnection c, String msgUser, String msgPass,
+         String gameName, Map<String, SOCGameOption> gameOpts)
     {
         System.err.println("L4885 createOrJoinGameIfUserOK at " + System.currentTimeMillis());
+        if (msgUser != null)
+            msgUser = msgUser.trim();
         if (msgPass != null)
             msgPass = msgPass.trim();
+        if (gameName != null)
+            gameName = gameName.trim();
         final int cliVers = c.getVersion();
 
         /**
@@ -5762,7 +6027,8 @@ public class SOCServer extends Server
         /**
          * Check that the game name is ok
          */
-        if (! SOCMessage.isSingleLineAndSafe(gameName))
+        if ( (! SOCMessage.isSingleLineAndSafe(gameName))
+             || "*".equals(gameName))
         {
             c.put(SOCStatusMessage.toCmd
                     (SOCStatusMessage.SV_NEWGAME_NAME_REJECTED, cliVers,
@@ -6003,7 +6269,7 @@ public class SOCServer extends Server
 
         try
         {
-            gameDestroyed = leaveGame(c, gaName, false);
+            gameDestroyed = leaveGame(c, gaName, true, false);
         }
         catch (Exception e)
         {
@@ -7495,11 +7761,32 @@ public class SOCServer extends Server
         final String requester = (String) c.getData();  // null if client isn't authenticated
         final Date currentTime = new Date();
         boolean isDBCountedEmpty = false;  // with null requester, did we query and find the users table is empty?
+            // Not set if FEAT_OPEN_REG is active.
 
         // If client is not authenticated, does this server have open registration
         // or is an account required to create user accounts?
         if ((requester == null) && ! features.isActive(SOCServerFeatures.FEAT_OPEN_REG))
         {
+            // SOCAccountClients older than v1.1.19 (VERSION_FOR_AUTHREQUEST, VERSION_FOR_SERVERFEATURES)
+            // can't authenticate; all their user creation requests are anonymous (FEAT_OPEN_REG).
+            // They can't be declined when SOCAccountClient connects, because v1.1.19 is when
+            // SOCAuthRequest(ROLE_USER_ADMIN) message was added; we don't know why an older client
+            // has connected until they try to create or join a game or channel or create a user.
+            // It's fine for them to connect for games or channels, but user creation requires authentication.
+            // Check client version now; an older client could create the first account without auth,
+            // then not be able to create further ones which would be confusing.
+
+            if (cliVers < SOCAuthRequest.VERSION_FOR_AUTHREQUEST)
+            {
+                c.put(SOCStatusMessage.toCmd
+                        (SOCStatusMessage.SV_CANT_JOIN_GAME_VERSION,  // cli knows this status value: defined in 1.1.06
+                         cliVers, c.getLocalized
+                             ("account.create.client_version_minimum",
+                              Version.version(SOCServerFeatures.VERSION_FOR_SERVERFEATURES))));
+                              // "To create accounts, use client version {1} or newer."
+                return;
+            }
+
             // If account is required, are there any accounts in the db at all?
             // if none, this first account creation won't require auth.
 
@@ -7530,7 +7817,7 @@ public class SOCServer extends Server
         //
         // check to see if the requested nickname is permissable
         //
-        final String userName = mes.getNickname();
+        final String userName = mes.getNickname().trim();
 
         if (! SOCMessage.isSingleLineAndSafe(userName))
         {
@@ -7541,7 +7828,7 @@ public class SOCServer extends Server
         }
 
         //
-        // Check if we're using a user admin whitelist; this check is also in handleAUTHREQUEST.
+        // Check if we're using a user admin whitelist; this check is also in isUserDBUserAdmin.
         //
         // If databaseUserAdmins != null, then requester != null because FEAT_OPEN_REG can't also be active.
         // If requester is null because db is empty, check new userName instead of requester name:
@@ -7562,8 +7849,14 @@ public class SOCServer extends Server
 
                 printAuditMessage
                     (requester,
-                     "Requested jsettlers account creation, this requester not on account admin whitelist",
+                     (isDBCountedEmpty)
+                         ? "Requested jsettlers account creation, database is empty - first, create a user named in account admin whitelist"
+                         : "Requested jsettlers account creation, this requester not on account admin whitelist",
                      null, currentTime, c.host());
+
+                if (isDBCountedEmpty)
+                    System.err.println("User requested new account but database is currently empty: Run SOCAccountClient to create admin account(s) named in the whitelist.");
+                    // probably don't need to also print databaseUserAdmins list contents here
 
                 return;
             }
@@ -7612,9 +7905,11 @@ public class SOCServer extends Server
 
         if (success)
         {
+            final int stat = (isDBCountedEmpty)
+                ? SOCStatusMessage.SV_ACCT_CREATED_OK_FIRST_ONE
+                : SOCStatusMessage.SV_ACCT_CREATED_OK;
             c.put(SOCStatusMessage.toCmd
-                    (SOCStatusMessage.SV_ACCT_CREATED_OK, cliVers,
-                     "Account created for '" + userName + "'."));
+                    (stat, cliVers, "Account created for '" + userName + "'."));
 
             printAuditMessage(requester, "Created jsettlers account", userName, currentTime, c.host());
 
@@ -7933,6 +8228,23 @@ public class SOCServer extends Server
 
         // All set.
     }  // resetBoardAndNotify_finish
+
+    /**
+     * Increment the "number of games finished" server-statistics field.
+     * Call when a game's state becomes {@link SOCGame#OVER} (or higher)
+     * from a lower/earlier state.
+     *<P>
+     * Thread-safe; synchronizes on an internal object.
+     * Package-level access for calls from {@link GameHandler}s.
+     * @since 2.0.00
+     */
+    void gameOverIncrGamesFinishedCount()
+    {
+        synchronized (countFieldSync)
+        {
+            ++numberOfGamesFinished;
+        }
+    }
 
     /**
      * create a new game event record
@@ -8263,7 +8575,7 @@ public class SOCServer extends Server
      * See {@link #PROP_JSETTLERS_GAMEOPT_PREFIX} for game option property syntax.
      *<P>
      * If <tt>args[]</tt> is empty, it will use defaults for
-     * {@link #PROP_JSETTLERS_PORT} and {@link #PROP_JSETTLERS_CONNECTIONS}}.
+     * {@link #PROP_JSETTLERS_PORT} and {@link #PROP_JSETTLERS_CONNECTIONS}.
      *<P>
      * Does not use a {@link #PROP_JSETTLERS_STARTROBOTS} default, that's
      * handled in {@link #initSocServer(String, String, Properties)}.
@@ -8284,7 +8596,7 @@ public class SOCServer extends Server
         // is copied for visibility from private init_propsSetGameopts.  If you update the
         // text here, also update the same text in init_propsSetGameopts's javadoc.
 
-        Properties argp = new Properties();
+        Properties argp = new Properties();  // returned props, from "jsserver.properties" file and args[]
 
         // Check against options which are on command line twice: Can't just check argp keys because
         // argp is loaded from jsserver.properties, then command-line properties can override
@@ -8564,13 +8876,10 @@ public class SOCServer extends Server
                 argp.setProperty(PROP_JSETTLERS_PORT, Integer.toString(SOC_PORT_DEFAULT));
             if (! argp.containsKey(PROP_JSETTLERS_CONNECTIONS))
                 argp.setProperty(PROP_JSETTLERS_CONNECTIONS, Integer.toString(SOC_MAXCONN_DEFAULT));
-            if (! argp.containsKey(SOCDBHelper.PROP_JSETTLERS_DB_USER))
-                argp.setProperty(SOCDBHelper.PROP_JSETTLERS_DB_USER, "socuser");
-            if (! argp.containsKey(SOCDBHelper.PROP_JSETTLERS_DB_PASS))
-                argp.setProperty(SOCDBHelper.PROP_JSETTLERS_DB_PASS, "socpass");
+            // PROP_JSETTLERS_DB_USER, _PASS are set below
         } else {
-            // Require all 4 parameters
-            if ((args.length - aidx) < 4)
+            // Require at least 2 parameters
+            if ((args.length - aidx) < 2)
             {
                 if (! printedUsageAlready)
                 {
@@ -8581,21 +8890,46 @@ public class SOCServer extends Server
                 printUsage(false);
                 return null;
             }
+
             argp.setProperty(PROP_JSETTLERS_PORT, args[aidx]);  ++aidx;
             argp.setProperty(PROP_JSETTLERS_CONNECTIONS, args[aidx]);  ++aidx;
 
-            // Check DB user and password against any -D parameters in properties
-            if (cmdlineOptsSet.contains(SOCDBHelper.PROP_JSETTLERS_DB_USER)
-                || cmdlineOptsSet.contains(SOCDBHelper.PROP_JSETTLERS_DB_PASS))
+            // Optional DB user and password
+            if ((args.length - aidx) > 0)
             {
-                System.err.println("SOCServer: DB user and password cannot appear twice on command line.");
-                printUsage(false);
-                return null;
+                // Check DB user and password against any -D parameters in properties
+                if (cmdlineOptsSet.contains(SOCDBHelper.PROP_JSETTLERS_DB_USER)
+                    || cmdlineOptsSet.contains(SOCDBHelper.PROP_JSETTLERS_DB_PASS))
+                {
+                    System.err.println("SOCServer: DB user and password cannot appear twice on command line.");
+                    printUsage(false);
+                    return null;
+                }
+                argp.setProperty(SOCDBHelper.PROP_JSETTLERS_DB_USER, args[aidx]);  ++aidx;
+                if ((args.length - aidx) > 0)
+                {
+                    argp.setProperty(SOCDBHelper.PROP_JSETTLERS_DB_PASS, args[aidx]);  ++aidx;
+                } else {
+                    argp.setProperty(SOCDBHelper.PROP_JSETTLERS_DB_PASS, "");
+                }
             }
-            argp.setProperty(SOCDBHelper.PROP_JSETTLERS_DB_USER, args[aidx]);  ++aidx;
-            argp.setProperty(SOCDBHelper.PROP_JSETTLERS_DB_PASS, args[aidx]);  ++aidx;
         }
 
+        // If no positional parameters db_user db_pass, take defaults.
+        // Check each one before setting it, in case was specified in properties file
+        if (! argp.containsKey(SOCDBHelper.PROP_JSETTLERS_DB_USER))
+        {
+            argp.setProperty(SOCDBHelper.PROP_JSETTLERS_DB_USER, "socuser");
+            if (! argp.containsKey(SOCDBHelper.PROP_JSETTLERS_DB_PASS))
+                argp.setProperty(SOCDBHelper.PROP_JSETTLERS_DB_PASS, "socpass");
+        }
+        else if (! argp.containsKey(SOCDBHelper.PROP_JSETTLERS_DB_PASS))
+        {
+            // specified _USER but not _PASS: store "" for empty password instead of default
+            argp.setProperty(SOCDBHelper.PROP_JSETTLERS_DB_PASS, "");
+        }
+
+        // Make sure no more flagged parameters
         if (aidx < args.length)
         {
             if (! printedUsageAlready)
@@ -8604,7 +8938,7 @@ public class SOCServer extends Server
                 {
                     System.err.println("SOCServer: Options must appear before, not after, the port number.");
                 } else {
-                    System.err.println("SOCServer: Options must appear before the port number, not after dbpass.");
+                    System.err.println("SOCServer: Options must appear before the port number, not after dbuser/dbpass.");
                 }
                 printUsage(false);
             }
@@ -8987,7 +9321,7 @@ public class SOCServer extends Server
     }
 
     /**
-     * Print a security-action audit message in a standard format.
+     * Print a security-action audit message to {@link System#out} in a standard format.
      *<H5>Example with object:</H5>
      *   Audit: Requested jsettlers account creation, already exists: '{@code obj}'
      *      by '{@code req}' from {@code reqHost} at {@code at}
@@ -9043,7 +9377,7 @@ public class SOCServer extends Server
         {
             Version.printVersionText(System.err, "Java Settlers Server ");
         }
-        System.err.println("usage: java soc.server.SOCServer [option...] port_number max_connections dbUser dbPass");
+        System.err.println("usage: java soc.server.SOCServer [option...] port_number max_connections [dbUser [dbPass]]");
         if (longFormat)
         {
             System.err.println("usage: recognized options:");

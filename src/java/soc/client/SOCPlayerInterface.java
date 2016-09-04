@@ -644,7 +644,7 @@ public class SOCPlayerInterface extends Frame
          * initialize the game board display and add it to the interface
          */
         boardPanel = new SOCBoardPanel(this);
-        boardPanel.setBackground(new Color(63, 86, 139));  // sea blue; if ! hasSeaBoard, tiles won't fill entire area
+        boardPanel.setBackground(new Color(63, 86, 139));  // sea blue; briefly visible at start before water tiles are drawn
         boardPanel.setForeground(Color.black);
         Dimension bpMinSz = boardPanel.getMinimumSize();
         boardPanel.setSize(bpMinSz.width, bpMinSz.height);
@@ -948,10 +948,10 @@ public class SOCPlayerInterface extends Frame
     {
         final int gstate = game.getGameState();
         final boolean clientSatAlready = (clientHand != null);
-        boolean noTextOverlay = ((! show)
-            || (clientSatAlready && ((gstate >= SOCGame.START1A) || game.isBoardReset())));
+        boolean noTextOverlay = ((! show) || isGameStart
+            || (clientSatAlready && ((gstate >= SOCGame.READY) || game.isBoardReset())));
         if (gstate == SOCGame.NEW)
-            isGameStart = true;
+            isGameStart = true;  // change this param only after setting noTextOverlay
 
         final int maxPl = game.getGameOptionIntValue("PL");
         if (maxPl == game.maxPlayers)

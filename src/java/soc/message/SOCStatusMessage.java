@@ -1,7 +1,7 @@
 /**
  * Java Settlers - An online multiplayer version of the game Settlers of Catan
  * Copyright (C) 2003  Robert S. Thomas <thomas@infolab.northwestern.edu>
- * Portions of this file Copyright (C) 2009-2010,2012-2014 Jeremy D Monin <jeremy@nand.net>
+ * Portions of this file Copyright (C) 2009-2010,2012-2014,2016 Jeremy D Monin <jeremy@nand.net>
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -34,15 +34,20 @@ import soc.util.SOCServerFeatures;  // for javadocs only
  * Sent in response to any message type used by clients to request authentication
  * and create or connect to a game or channel: {@link SOCJoinGame}, {@link SOCJoin},
  * {@link SOCImARobot}, {@link SOCAuthRequest}, {@link SOCNewGameWithOptionsRequest}.
- *<P>
- * <b>Added in Version 1.1.06:</b><br>
- * Status value parameter (nonnegative integer).
+ *
+ * <H3>Status values:</H3>
+ * The Status Value parameter (nonnegative integer) was added in version 1.1.06.
  * For backwards compatibility, the status value (integer {@link #getStatusValue()} ) is not sent
- * as a parameter, if it is 0.  (In JSettlers older than 1.1.06, it
+ * as a parameter if it is 0.  (In JSettlers older than 1.1.06, status value
  * is always 0.)  Earlier versions simply printed the entire message as text,
  * without trying to parse anything.
- *<P>
- * <b>"Debug Is On" notification:</b><br>
+ *
+ * <H5>Status value back-compatibility:</H5>
+ * The server-called method {@link #toCmd(int, int, String)} checks client version compatibility
+ * to avoid sending newly defined status codes/values to clients too old to understand them;
+ * older "fallback" status values are sent instead. See individual status values' javadocs.
+ *
+ * <H3>"Debug Is On" notification:</H3>
  * In version 1.1.17 and newer, a server with debug commands enabled will send
  * a STATUSMESSAGE right after sending its {@link SOCVersion VERSION}, which will include text
  * such as "debug is on" or "debugging on".  It won't send a nonzero status value, because
@@ -59,9 +64,7 @@ public class SOCStatusMessage extends SOCMessage
 
     /**
      * Status value constants. SV_OK = 0 : Welcome, OK to connect.
-     * SV_NOT_OK_GENERIC = 1 : Generic "not OK" status value.
-     * Other specific status value constants are given here.
-     * If any are added, do not change or remove the numeric values of earlier ones.
+     * @see #SV_NOT_OK_GENERIC
      * @since 1.1.06
      */
     public static final int SV_OK = 0;
@@ -71,9 +74,13 @@ public class SOCStatusMessage extends SOCMessage
      * This is given to the client if a more specific value does not apply,
      * or if the client's version is older than the version where the more specific
      * value was introduced.
+     * @see #SV_OK
      * @since 1.1.06
      */
     public static final int SV_NOT_OK_GENERIC = 1;
+
+    // Other specific status value constants are given here.
+    // When adding new ones, see "IF YOU ADD A STATUS VALUE" comment below.
 
     /**
      * Name not found in server's accounts = 2.
@@ -107,6 +114,11 @@ public class SOCStatusMessage extends SOCMessage
 
     /**
      * This game version is too new for your client's version to join = 5
+     *<P>
+     * Server v1.1.20 and newer also send this value to {@code SOCAccountClient}
+     * if client is too old to create accounts at the server's version
+     * because of a required logon auth or other message added since that client's version.
+     *
      * @since 1.1.06
      */
     public static final int SV_CANT_JOIN_GAME_VERSION = 5;
@@ -119,6 +131,7 @@ public class SOCStatusMessage extends SOCMessage
 
     /**
      * For account creation, new account was created successfully = 7
+     * @see #SV_ACCT_CREATED_OK_FIRST_ONE
      * @since 1.1.06
      */
     public static final int SV_ACCT_CREATED_OK = 7;
@@ -213,13 +226,30 @@ public class SOCStatusMessage extends SOCMessage
     public static final int SV_ACCT_NOT_CREATED_DENIED = 17;
 
     /**
+     * For account creation, new account was created successfully and was the first account = 18.
+     * Normally (when not the first account) the status code returned is {@link #SV_ACCT_CREATED_OK}.
+     * This separate code is provided to let the client know they
+     * must authenticate before creating any other accounts.
+     *<P>
+     * This status is not sent if the server is in Open Registration mode ({@link SOCServerFeatures#FEAT_OPEN_REG}),
+     * because in that mode there's nothing special about the first account and no need to authenticate
+     * before creating others.
+     *<P>
+     * Clients older than v1.1.20 won't recognize this status value;
+     * they should be sent {@link #SV_ACCT_CREATED_OK} instead.
+     * @since 1.1.20
+     */
+    public static final int SV_ACCT_CREATED_OK_FIRST_ONE = 18;
+
+    /**
      * Client has connected successfully ({@link #SV_OK}) and the server's Debug Mode is on.
      * Versions older than 2.0.00 get {@link #SV_OK} instead; see {@link #toCmd(int, int, String)}.
      * @since 2.0.00
      */
-    public static final int SV_OK_DEBUG_MODE_ON = 18;
+    public static final int SV_OK_DEBUG_MODE_ON = 19;
 
     // IF YOU ADD A STATUS VALUE:
+    // Do not change or remove the numeric values of earlier ones.
     // Be sure to update statusValidAtVersion().
 
     /**
@@ -288,7 +318,9 @@ public class SOCStatusMessage extends SOCMessage
     }
 
     /**
-     * Create a StatusMessage message, with a nonzero value.
+     * Create a StatusMessage message, with a nonzero status value.
+     * Does not check that {@code sv} is compatible with the client it's sent to;
+     * for that use {@link #toCmd(int, int, String)} instead.
      *
      * @param sv  status value (from constants defined here, such as {@link #SV_OK})
      * @param st  the status message text.
@@ -330,17 +362,18 @@ public class SOCStatusMessage extends SOCMessage
     }
 
     /**
-     * STATUSMESSAGE sep [svalue sep2] status
+     * STATUSMESSAGE sep [svalue sep2] status -- does not include backwards compatibility.
+     * This method is best for sending status values {@link #SV_OK} or {@link #SV_NOT_OK_GENERIC}.
+     * for other newer status values, call {@link #toCmd(int, int, String)} instead.
      *
      * @param sv  the status value; if 0 or less, is not output.
      *            Should be a constant such as {@link #SV_OK}.
      *            Remember that not all client versions recognize every status;
-     *            see {@link #statusValidAtVersion(int, int)}.
+     *            see {@link #toCmd(int, int, String)}.
      * @param st  the status message text.
      *            If sv is nonzero, you may embed {@link SOCMessage#sep2} characters
      *            in your string, and they will be passed on for the receiver to parse.
      * @return the command string
-     * @see #toCmd(int, int, String)
      */
     public static String toCmd(int sv, String st)
     {
@@ -358,12 +391,19 @@ public class SOCStatusMessage extends SOCMessage
 
     /**
      * STATUSMESSAGE sep [svalue sep2] status -- includes backwards compatibility.
-     *            Calls {@link #statusValidAtVersion(int, int)}.
-     *            if sv isn't recognized in that version, will send
-     *            {@link #SV_NOT_OK_GENERIC} instead.
-     *<P>
-     *            If {@link #SV_OK_DEBUG_MODE_ON} isn't recognized in {@code cliVers},
-     *            will send {@link #SV_OK} instead.
+     * Calls {@link #statusValidAtVersion(int, int)}. if {@code sv} isn't recognized in
+     * that client version, will send {@link #SV_NOT_OK_GENERIC} or another "fallback"
+     * value defined in the client. See individual status values' javadocs for details.
+     *<UL>
+     * <LI> {@link #SV_OK_DEBUG_MODE_ON} falls back to {@link #SV_OK}
+     * <LI> {@link #SV_PW_REQUIRED} falls back to {@link #SV_PW_WRONG}
+     * <LI> {@link #SV_ACCT_CREATED_OK_FIRST_ONE} falls back to {@link #SV_ACCT_CREATED_OK}
+     * <LI> All others fall back to {@link #SV_NOT_OK_GENERIC}
+     * <LI> In case the fallback value is also not recognized at the client,
+     *      {@code toCmd(..)} will fall back again to something more generic
+     * <LI> Clients before v1.1.06 will be sent the status text {@code st} only,
+     *      without the {@code sv} parameter which was added in 1.1.06
+     *</UL>
      *
      * @param sv  the status value; if 0 or less, is not output.
      *            Should be a constant such as {@link #SV_OK}.
@@ -380,16 +420,27 @@ public class SOCStatusMessage extends SOCMessage
         {
             if (sv == SV_OK_DEBUG_MODE_ON)
                 sv = SV_OK;
+            else if (sv == SV_PW_REQUIRED)
+                sv = SV_PW_WRONG;
+            else if (sv == SV_ACCT_CREATED_OK_FIRST_ONE)
+                sv = SV_ACCT_CREATED_OK;
             else if (cliVers >= 1106)
                 sv = SV_NOT_OK_GENERIC;
             else
                 sv = SV_OK;
+
+            return toCmd(sv, cliVers, st);  // ensure fallback value is valid at client's version
+        } else {
+            return toCmd(sv, st);
         }
-        return toCmd(sv, st);
     }
 
     /**
      * Is this status value defined in this version?  If not, {@link #SV_NOT_OK_GENERIC} should be sent instead.
+     * A different fallback value can be sent instead if the client is new enough to understand it; for
+     * example instead of {@link #SV_ACCT_CREATED_OK_FIRST_ONE}, send {@link #SV_ACCT_CREATED_OK}.
+     *<P>
+     * Server calls {@link #toCmd(int, int, String)} to check client version and send a compatible status value.
      *
      * @param statusValue  status value (from constants defined here, such as {@link #SV_OK})
      * @param cliVersion Client's version, same format as {@link soc.util.Version#versionNumber()};
@@ -409,6 +460,10 @@ public class SOCStatusMessage extends SOCMessage
             return (statusValue <= SV_NEWGAME_NAME_TOO_LONG);
         case 1110:
             return (statusValue <= SV_NEWCHANNEL_TOO_MANY_CREATED);
+        case 1119:
+            return (statusValue <= SV_ACCT_NOT_CREATED_DENIED);
+        case 1120:
+            return (statusValue <= SV_ACCT_CREATED_OK_FIRST_ONE);
         default:
             {
             if (cliVersion < 1106)

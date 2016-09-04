@@ -68,7 +68,7 @@ import java.util.Timer;
 import java.util.TimerTask;
 import java.util.Vector;
 
-import soc.debug.D;  // JM
+import soc.disableDebug.D;
 
 import soc.game.SOCBoard;
 import soc.game.SOCBoardLarge;
@@ -723,8 +723,13 @@ public class SOCPlayerClient
          */
         private boolean mainPaneLayoutIsDone, mainPaneLayoutIsDone_hasChannels;
 
+        /** Nickname (username) to connect to server and use in games */
         protected TextField nick;
+
+        /** Password for {@link #nick} while connecting to server, or blank */
         protected TextField pass;
+
+        /** Status from server, or progress/error message updated by client */
         protected TextField status;
 
         /**
@@ -736,11 +741,17 @@ public class SOCPlayerClient
         // protected TextField game;  // removed 1.1.07 - NewGameOptionsFrame instead
 
         /**
-         * List of chat channels that can be joined with {@link #jc} button.
+         * List of chat channels that can be joined with {@link #jc} button or by double-click.
          * Hidden in v1.1.19+ if server is missing {@link SOCServerFeatures#FEAT_CHANNELS}.
          */
         protected java.awt.List chlist;
 
+        /**
+         * List of games that can be joined with {@link #jg} button or by double-click,
+         * or detail info displayed with {@link #gi} button.
+         * Contains all games on server if connected, and any Practice Games
+         * created with {@link #pg} button.
+         */
         protected java.awt.List gmlist;
 
         /**
@@ -756,8 +767,15 @@ public class SOCPlayerClient
          */
         protected Button jc;
 
-        protected Button jg;  // join game
-        protected Button pg;  // practice game (against practiceServer, not localTCPServer)
+        /** "Join Game" button */
+        protected Button jg;
+
+        /**
+         * Practice Game button: Create game to play against
+         * {@link SOCPlayerClient.ClientNetwork#practiceServer practiceServer},
+         * not {@link SOCPlayerClient.ClientNetwork#localTCPServer localTCPServer}.
+         */
+        protected Button pg;
 
         /**
          * "Game Info" button, shows a game's {@link SOCGameOption}s.
@@ -767,11 +785,23 @@ public class SOCPlayerClient
          */
         protected Button gi;
 
+        /**
+         * Local Server indicator in main panel: blank, or 'server is running' if
+         * {@link SOCPlayerClient.ClientNetwork#localTCPServer localTCPServer} has been started.
+         * If so, localTCPServer's port number is shown in {@link #versionOrlocalTCPPortLabel}.
+         */
+        private Label localTCPServerLabel;
+
+        /**
+         * When connected to a remote server, shows its version number.
+         * When running {@link SOCPlayerClient.ClientNetwork#localTCPServer localTCPServer},
+         * shows that server's port number (see also {@link #localTCPServerLabel}).
+         * In either mode, has a tooltip with more info.
+         */
+        private Label versionOrlocalTCPPortLabel;
+
         protected Label messageLabel;  // error message for messagepanel
         protected Label messageLabel_top;   // secondary message
-        private Label localTCPServerLabel;  // blank, or 'server is running'
-        private Label versionOrlocalTCPPortLabel;   // shows port number in mainpanel, if running localTCPServer;
-                                             // shows remote version# when connected to a remote server
         protected Button pgm;  // practice game on messagepanel
 
         /**
@@ -2496,6 +2526,9 @@ public class SOCPlayerClient
                     {
                         client.serverGames.deleteGame(gameName);  // may not be in there
                     }
+
+                    gi.setEnabled(false);
+
                     return true;
                 }
 
@@ -2727,6 +2760,7 @@ public class SOCPlayerClient
             }
 
             cardLayout.show(this, MESSAGE_PANEL);
+
             // Connect to it
             client.net.connect("localhost", tport);  // I18N: no need to localize this hostname
 
@@ -2735,6 +2769,14 @@ public class SOCPlayerClient
             {
                 connectOrPracticePane.startedLocalServer();
             }
+
+            // Ensure we can type a nickname, or click "New Game" if one is already entered.
+            // This lets player create a game after starting a practice game (which sets nickname)
+            // and then starting a server.
+            if (nick.getText().trim().length() > 0)
+                ng.setEnabled(true);
+            else
+                nick.setEditable(true);
 
             // Reset the cursor
             setCursor(Cursor.getPredefinedCursor(Cursor.DEFAULT_CURSOR));
@@ -2777,7 +2819,8 @@ public class SOCPlayerClient
         if (mes == null)
             return;  // Parsing error
 
-        D.ebugPrintln(mes.toString());
+        if (D.ebugIsEnabled())
+            D.ebugPrintln(mes.toString());
 
         try
         {

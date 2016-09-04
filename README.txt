@@ -36,6 +36,7 @@ Contents
   Hosting a JSettlers Server
   Upgrading from an earlier version
   Database Setup
+  Security and Admin Users
   Development and Compiling
 
 
@@ -49,7 +50,7 @@ its users using the applet.
 Currently, this README is the only technical documentation for running
 the client or server, setup and other issues. Over time, more docs
 will be written. If you are interested in helping write documentation
-please contact the development team from the SourceForge site.
+please contact the development team from our github page.
 
 
 Requirements
@@ -291,6 +292,10 @@ It's a simple process to upgrade to the latest version of JSettlers:
   change and you'll need to add a server config option to keep the
   same behavior, so read carefully.
 
+  If you're upgrading from JSettlers 1.1.18 or earlier, for security reasons
+  newer versions by default disallow user account self-registration. If you
+  still want to use that option, search this README for "open registration".
+
 - Save a backup copy of your current JSettlers.jar and JSettlersServer.jar,
   in case you want to run the old version for any reason.
 
@@ -317,13 +322,8 @@ or PostgreSQL database. This will eliminate the "Problem connecting to database"
 errors from the server, and also gives you the option to save all game scores
 for reports or community-building.
 
-Note: If you're upgrading to JSettlers 1.1.19, for security reasons the default
-has changed to disallow user account self-registration. If you still want to
-use that option, search below for "open registration".
-
 For these instructions we'll assume you already installed the PostgreSQL or
-MySQL software. SQLite is an easy database choice because it's just a JAR
-file, not a separate large install, if you're looking to avoid that.
+MySQL software, or will download a SQLite JAR to avoid database server setup.
 
 You will need a JDBC driver JAR file in your classpath or the same directory as
 the JSettlers JAR, see below for details. Besides PostgreSQL, MySQL, or SQLite
@@ -413,7 +413,7 @@ Optional: Creating JSettlers Player Accounts in the DB:
 To create player accounts, run the simple account creation client with the
 following command:
 
-  java -jar JSettlers.jar soc.client.SOCAccountClient localhost 8880
+  java -cp JSettlers.jar soc.client.SOCAccountClient localhost 8880
 
 Users with accounts must type their password to log into the server to play.
 People without accounts can still connect by leaving the password field blank,
@@ -430,6 +430,10 @@ When you first set up the database, there won't be any user accounts, so the
 server will allow anyone to create the first account.  Please be sure to
 create that first user account soon after you set up the database.
 
+
+Security and Admin Users
+------------------------
+
 If you want to require that all players have accounts and passwords, include
 this option when you start your server:
 	-Djsettlers.accounts.required=y
@@ -437,8 +441,19 @@ this option when you start your server:
 To permit only certain users to create new accounts, instead of all users,
 list them when you start your server:
 	-Djsettlers.accounts.admins=bob,joe,lily
+This creates a whitelist of Account Admin Users. Account admins can create
+accounts and run user-related commands, such as listing all users in a game with
+	*WHO* gamename
+or listing all users connected to the server with
+	*WHO* *
+For a list of all available commands, type
+	*HELP*
+into the chat window of any game while connected as an admin user.
+
+Note:
 The server doesn't require or check at startup that the named accounts all
-already exist, this is just a comma-separated list of names.
+already exist, the whitelist is only a comma-separated list of names. This
+simplifies initial setup.
 
 In case an admin account password is lost, there's a rudimentary password-reset feature:
 Run JSettlersServer with the usual DB parameters and --pw-reset username, and you will be
@@ -449,11 +464,10 @@ It will reset the password and exit, won't start a JSettlersServer.
 Development and Compiling
 -------------------------
 
-Source code for JSettlers is available via tarballs and github.
-See the project website at http://nand.net/jsettlers/devel/
-or http://sourceforge.net/projects/jsettlers2/
-for details. Patches against the latest version may be submitted there
-or at https://github.com/jdmonin/JSettlers2 .
+JSettlers is an open-source project licensed under the GPL. The project
+source code is hosted at https://github.com/jdmonin/JSettlers2/ and
+the project website is http://nand.net/jsettlers/devel/ .  Questions,
+bugs, patches, and pull requests can be posted at the github page.
 
 For more information on compiling or developing JSettlers, see README.developer.
 That readme also has information about translating jsettlers to other languages,

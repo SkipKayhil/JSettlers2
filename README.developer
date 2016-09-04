@@ -20,6 +20,7 @@ CONTENTS
 - Developing with a database (JDBC)
 - Internationalization (I18N)
 - Robots (AI)
+- Network Communication and interop with other versions or languages
 - Coding Style
 - github usage
 
@@ -67,11 +68,17 @@ split out into an improved package structure.
 Tips for Debugging
 ------------------
 You can use debug commands in any practice game, by typing into the game chat
-textfield.  Type *help* for a list of commands.
-(If you need to use debug commands over a network connection, start that server
- with -Djsettlers.allow.debug=Y and connect with username debug.  For security,
- please use sqlite or another database, and make a "debug" account with a password.
- See README.txt section "Database Setup".)
+textfield.  Type *help* for a list of commands.  Debug commands can give resources
+or dev cards to players, freely place pieces on the board, remove a bot from the
+game, etc.  There are also a few robot debugging commands, not listed in *help*;
+see the "Robots (AI)" section.
+
+To help with security and prevent cheats, by default debug commands are disabled
+except for practice games.  If you need to use debug commands on a multi-player
+server, start that server with -Djsettlers.allow.debug=Y and connect with username debug.
+For security, please use sqlite or another database and make a "debug" account with
+a password (see README.txt section "Database Setup").  Except for practice games,
+no other username can use debug commands.
 
 If you want to inspect the game object state at the server or robot:
 	Set a breakpoint at SOCServer.processDebugCommand, or at "case SOCMessage.GAMETEXTMSG"
@@ -309,11 +316,19 @@ Current TODO list
 	- Monitoring: Command line utility or html-based dashboard: Uptime, health of bots,
 		currently active/total games from *STATS* cmd, client versions, any errors, etc
 	- Per-game thread/message queue at server (use SOCMessageForGame.getGame)
+	- Machine-readable specs for each network message type's parameters (type, required/optional, etc)
+		which could potentially generate a client library in other languages
+		or validate the java message classes
+	- Sample client code for the network protocol in python, js, or another language
 	- HTML5 client
 	- Cities & Knights support
 		- UI mock-ups
 		- state change / network message plans
 		- robot support
+	- Support for multiple game types
+		- At server: Other game types would extend GameHandler (like SOCGameHandler)
+		- When client connects: Game list, scenario list, and game options would need to deal with multiple game types
+		- SOCJoinGame message: Add optional gametype field at end (blank for current type SOC; older clients wouldn't send the field)
 
 
 Developing with a database (JDBC)
@@ -415,6 +430,24 @@ jsettlers client to observe a bot game as it plays.
 If jsettlers.bots.botgames.total != 0 (including < 0), at any time the client can create a new game,
 join but not sit down at a seat, and start that game as bots-only using the debug command
 *STARTBOTGAME* [maxBots] to test the bots with any given combination of game options and scenarios.
+
+
+Network Communication and interop with other versions or languages
+------------------------------------------------------------------
+Players' clients talk to the JSettlers server using a simple string-based message format.
+See "Overall Structure" for an overview on network message handling.
+Communication format and more details are described in soc.message.SOCMessage.
+
+Keeping the network protocol simple helps with interoperability between different
+versions and implementations. At the TCP level, JSettlers messages are unicode Strings
+sent using DataOutputStream.writeUTF(String) and DataInputStream.readUTF().
+
+AI bots, server monitors, or other client programs can also be written in non-Java languages.
+Such clients could communicate with JSettlers by implementing writeUTF and readUTF
+(searching online finds sample code for popular languages), looking for the message types
+they need to work with (listed in SOCMessage), and decoding/encoding those message types.
+See "Overall Structure" above and class javadocs of SOCMessage, SOCDisplaylessPlayerClient,
+SOCRobotClient, soc.server.genericServer.Server, and SOCServer.
 
 
 Coding Style

@@ -1899,13 +1899,14 @@ public class SOCPlayer implements SOCDevCardConstants, Serializable, Cloneable
      * set the longest paths vector
      * @param vec  the vector
      */
-    public void setLRPaths(Vector<SOCLRPathData> vec)
+    public void setLRPaths(List<SOCLRPathData> vec)
     {
         lrPaths.removeAllElements();
 
         for (SOCLRPathData pd : vec)
         {
-            D.ebugPrintln("restoring pd for player " + playerNumber + " :" + pd);
+            if (D.ebugOn)
+                D.ebugPrintln("restoring pd for player " + playerNumber + " :" + pd);
             lrPaths.addElement(pd);
         }
     }
@@ -4359,6 +4360,9 @@ public class SOCPlayer implements SOCDevCardConstants, Serializable, Cloneable
         /**
          * we're doing a depth first search of all possible road paths.
          * For similar code, see soc.robot.SOCRobotDM.recalcLongestRoadETAAux.
+         * Both methods rely on a stack holding NodeLenVis (pop to curNode in loop);
+         * they differ in actual element type within the stack because they are
+         * gathering slightly different results (length or a stack of edges).
          */
         SOCBoard board = game.getBoard();
         Stack<NodeLenVis<IntPair>> pending = new Stack<NodeLenVis<IntPair>>();

@@ -1,8 +1,9 @@
 [ The list of the different public versions of JSettlers ]
 
-Unless otherwise indicated, versions are hosted at http://nand.net/jsettlers/devel/
-and (recent versions) at http://sourceforge.net/projects/jsettlers2/files/
-and source history at https://github.com/jdmonin/JSettlers2
+Unless otherwise indicated, JARs for JSettlers versions
+are hosted at http://nand.net/jsettlers/devel/ and
+(recent versions) at https://github.com/jdmonin/JSettlers2/releases ;
+project home and source history at https://github.com/jdmonin/JSettlers2
 
 From 1.0 up through 1.1.13, there is a single line of development.
 
@@ -40,19 +41,41 @@ new features, until 2.0.00 is ready.
 
 
     > 1.1.20 (build OV201512xx)
+- Game window board panel resize:
+     Much better performance and reliability by using good-quality synchronous Graphics2D.drawImage
+     Use smooth vectors, not scaled-up images, for ports
+- Board hex graphics updated for smoother look and scaling
 - For visibility use black text for Longest Road, Largest Army in player hand panels
 - *ADDTIME* command: Don't add time if more than 90 minutes still remaining
-- Server startup options: New optional jsserver.properties file, read before command line
+- Server startup options:
+     New optional jsserver.properties file, read before command line
+     Command line: db user and password now optional when specifying port and max connections
 - Game option defaults can be properties in that file or command line: jsettlers.gameopt.RD=y
 - Game option boolean default values more strictly parsed
 - Robots: Force robots to discard random resources after several seconds of inactivity
      during other players' turns when a 7 is rolled.
 - Show/hide current trade offers' Accept buttons when client player resources gained/lost/traded
+- Server stats (*STATS* command): Increase "games finished" when game is over, not later when it's destroyed
+- *HELP* command recognized from all players, not only debug user
+- *WHO* command: User admins or debug user can list any game's members, or * or ALL to list all connected users
+- Game or channel name "*" no longer permitted, to avoid conflicts with admin command enhancements.
+- Server console traces:
+     "joined the game"/"left the game" include current time
+     Remove redundant joined/left debug prints
+- Debug commands dev: and rsrcs: also accept player number instead of name, for long or complex names
 - New Game options dialog: For int/intbool options use 0 if blank, intbool don't set int value if checkbox is unchecked
 - Optional user accounts: Warn if database is empty when config requires accounts or names the account admins
-- User account admin: New server parameter --pw-reset username can be used if an account password is lost
-- User account admin client: After creating new user, clear password fields in form
-- User account admin client: Minimum server version 1.1.19; for older servers, please download and use the older version's account client
+- User account admin:
+     New server parameter --pw-reset username can be used if an account password is lost
+     *WHO* user-admin command available when only certain users can create accounts (jsettlers.accounts.admins=...)
+- User account admin client:
+     After creating new user, clear password fields in form
+     Auto-authenticate when creating first admin account in new db
+     Minimum server version 1.1.19; for older servers, please download and use the older version's account client
+     Server requires minimum client version 1.1.19, to authenticate before creating users
+- User account DB schema: For new installs, require user passwords (existing DBs don't need to make this change).
+     Passwords were already required in earlier versions; this only formalizes it in the database.
+- Deactivate client debug prints of network message contents
 
     > 1.1.19 (build OV20141127)
 - New game option "N7C" for house rule: Roll no 7s until a city is built

@@ -79,11 +79,14 @@ public class SOCDBHelper
     // and also add it to SOCServer.PROPS_LIST.
 
     /** Property <tt>jsettlers.db.user</tt> to specify the server's SQL database username.
+     * Default is <tt>"socuser"</tt>.
      * @since 1.1.09
      */
     public static final String PROP_JSETTLERS_DB_USER = "jsettlers.db.user";
 
     /** Property <tt>jsettlers.db.pass</tt> to specify the server's SQL database password.
+     * Default is <tt>"socpass"</tt>.
+     * v1.1.20 and higher allow a blank password ("").
      * @since 1.1.09
      */
     public static final String PROP_JSETTLERS_DB_PASS = "jsettlers.db.pass";
@@ -248,9 +251,11 @@ public class SOCDBHelper
      * These can be changed by supplying <code>props</code>.
      *
      * @param user  the user name for accessing the database
-     * @param pswd  the password for the user
-     * @param props  null, or properties containing {@link #PROP_JSETTLERS_DB_USER},
+     * @param pswd  the password for the user, or ""
+     * @param props  null, or properties containing {@link #PROP_JSETTLERS_DB_DRIVER},
      *       {@link #PROP_JSETTLERS_DB_URL}, and any other desired properties.
+     *       Ignores {@link #PROP_JSETTLERS_DB_USER} and {@link #PROP_JSETTLERS_DB_PASS} if present,
+     *       uses the {@code user} and {@code pswd} parameters instead.
      * @throws SQLException if an SQL command fails, or the db couldn't be
      *         initialized;
      *         or if the {@link #PROP_JSETTLERS_DB_DRIVER} property is not mysql, not sqlite, not postgres,
@@ -330,7 +335,7 @@ public class SOCDBHelper
                         System.err.println("Could not find " + prop_jarname + " for JDBC driver class " + driverclass);
                         throw new FileNotFoundException(prop_jarname);
                     }
-                    final URL[] urls = { jf.toURL() };
+                    final URL[] urls = { jf.toURI().toURL() };
                     URLClassLoader child = new URLClassLoader(urls, ClassLoader.getSystemClassLoader());
                     final Class<?> dclass = Class.forName(driverclass, true, child);
                     driverinstance = (Driver) dclass.newInstance();
@@ -424,7 +429,7 @@ public class SOCDBHelper
      * That way, it can create tables used by the statements.
      *
      * @param user  DB username
-     * @param pswd  DB user password
+     * @param pswd  DB user password, or ""
      * @param setupScriptPath  Full path or relative path to SQL script to run at connect, or null;
      *     typically from {@link #PROP_JSETTLERS_DB_SCRIPT_SETUP}
      * @throws IOException  if <tt>setupScriptPath</tt> wasn't found, or if any other IO error occurs reading the script

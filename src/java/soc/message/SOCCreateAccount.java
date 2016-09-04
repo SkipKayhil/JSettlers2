@@ -1,7 +1,7 @@
 /**
  * Java Settlers - An online multiplayer version of the game Settlers of Catan
  * Copyright (C) 2003  Robert S. Thomas <thomas@infolab.northwestern.edu>
- * Portions of this file Copyright (C) 2014 Jeremy D Monin <jeremy@nand.net>
+ * Portions of this file Copyright (C) 2014,2016 Jeremy D Monin <jeremy@nand.net>
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -32,6 +32,9 @@ import java.util.StringTokenizer;
  * In version 1.1.19 and higher, by default users must authenticate before creating user accounts.
  * (See {@link soc.util.SOCServerFeatures#FEAT_OPEN_REG}.)  If the user needs to log in but hasn't
  * before sending {@code SOCCreateAccount}, the server replies with {@link SOCStatusMessage#SV_PW_WRONG}.
+ *<P>
+ * In version 1.1.20 and higher, after creating the very first account the reply status is
+ * {@link SOCStatusMessage#SV_ACCT_CREATED_OK_FIRST_ONE} unless {@code FEAT_OPEN_REG} is active.
  *
  * @author Robert S Thomas
  */
@@ -50,17 +53,17 @@ public class SOCCreateAccount extends SOCMessage
     private String nickname;
 
     /**
-     * Password
+     * Password, required; see {@link #getPassword()} for details and history.
      */
     private String password;
 
     /**
-     * Host name
+     * Host name, required; see {@link #getHost()} for details and history.
      */
     private String host;
 
     /**
-     * Email address
+     * Email address, optional; see {@link #getEmail()}.
      */
     private String email;
 
@@ -72,7 +75,7 @@ public class SOCCreateAccount extends SOCMessage
      *     in server v1.1.19 and higher.
      * @param pw  password; must not be null or ""
      * @param hn  host name; must not be null or ""
-     * @param em  email
+     * @param em  email; can be "", should not be null
      * @throws IllegalArgumentException if {@code pw} or {@code hn} are null or empty ("")
      */
     public SOCCreateAccount(String nn, String pw, String hn, String em)
@@ -102,6 +105,14 @@ public class SOCCreateAccount extends SOCMessage
     }
 
     /**
+     * Password for the requested new account. This won't be null or 0-length:
+     * Enforced in constructor, {@link #toCmd(String, String, String, String)},
+     * and {@link #parseDataStr(String)}.
+     *<P>
+     * Before v1.1.19, those methods didn't check their parameters for a non-blank password;
+     * {@link #parseDataStr(String)} has always rejected a message without a password because
+     * two adjacent field-separator tokens (if no password) would be treated as one, and
+     * not enough fields would be found in the message.
      * @return the password
      */
     public String getPassword()
@@ -110,6 +121,14 @@ public class SOCCreateAccount extends SOCMessage
     }
 
     /**
+     * Host name for the requested new account. This won't be null or 0-length:
+     * Enforced in constructor, {@link #toCmd(String, String, String, String)},
+     * and {@link #parseDataStr(String)}.
+     *<P>
+     * Before v1.1.19, those methods didn't check their parameters for a non-blank host;
+     * {@link #parseDataStr(String)} has always rejected a message without a host because
+     * two adjacent field-separator tokens (if no host) would be treated as one, and
+     * not enough fields would be found in the message.
      * @return the host name
      */
     public String getHost()
@@ -118,7 +137,8 @@ public class SOCCreateAccount extends SOCMessage
     }
 
     /**
-     * @return the email address
+     * Optional email address for the requested new account.
+     * @return the email address, or "" if none
      */
     public String getEmail()
     {
@@ -141,7 +161,7 @@ public class SOCCreateAccount extends SOCMessage
      * @param nn  the nickname
      * @param pw  the password; must not be null or ""
      * @param hn  the host name; must not be null or ""
-     * @param em  the email
+     * @param em  the email; optional, can use null or ""
      * @return    the command string
      * @throws IllegalArgumentException if {@code pw} or {@code hn} are null or empty ("")
      */
@@ -153,27 +173,15 @@ public class SOCCreateAccount extends SOCMessage
         if ((hn == null) || (hn.length() == 0))
             throw new IllegalArgumentException("hn");
 
-        String tempem;
+        if ((em == null) || (em.length() == 0))
+            em = NULLEMAIL;
 
-        if (em == null)
-        {
-            tempem = NULLEMAIL;
-        }
-        else
-        {
-            tempem = new String(em);
-
-            if (tempem.equals(""))
-            {
-                tempem = NULLEMAIL;
-            }
-        }
-
-        return CREATEACCOUNT + sep + nn + sep2 + pw + sep2 + hn + sep2 + tempem;
+        return CREATEACCOUNT + sep + nn + sep2 + pw + sep2 + hn + sep2 + em;
     }
 
     /**
-     * Parse the command String into a CreateAccount message
+     * Parse the command String into a CreateAccount message.
+     * A blank email field becomes "" (not null).
      *
      * @param s   the String to parse
      * @return    a CreateAccount message, or null of the data is garbled
@@ -212,7 +220,7 @@ public class SOCCreateAccount extends SOCMessage
      */
     public String toString()
     {
-        String s = "SOCCreateAccount:nickname=" + nickname + "|password=" + password + "|host=" + host + "|email=" + email;
+        String s = "SOCCreateAccount:nickname=" + nickname + "|password=***|host=" + host + "|email=" + email;
 
         return s;
     }
